@@ -12930,3 +12930,71 @@ deselection is the known pre-existing JWT flake, fixed in commit 3.
 > a named object gave it somewhere to travel, and the extra query was removed.
 
 **COMPLETE**
+
+---
+
+## Phase 22 Step A4.1 / Commit 3 — Tampered-JWT Test Made Deterministic — 2026-09-21 — COMPLETE
+
+### Context
+
+A4's first full-suite run failed on
+`test_auth_infrastructure.py::test_jwt_verify_rejects_tampered_token`,
+unrelated to anything in Phase 22. Investigation showed a genuine defect in
+the test, present since Phase 13, failing roughly 1 run in 20.
+
+### Implementation & Validation
+
+**Cause.** The test tampered a token by flipping the final character of the
+base64url signature to `"A"`. An HS256 signature is 32 bytes → 43 base64url
+characters; 43 × 6 = 258 bits for 256 bits of signature, so the final
+character carries 4 significant bits plus 2 bits of padding that decoding
+discards. Flipping it to `"A"` (value 0) leaves the decoded 32 bytes
+**unchanged** whenever the original character's four significant bits were
+already zero — characters A–D, 4 of 64 values. The token then still verifies
+and `pytest.raises` sees nothing.
+
+**Fix.** Decode the signature, XOR the first byte with `0xFF`, re-encode.
+That changes the signature bytes unconditionally, for every possible token.
+An `assert tampered_signature != signature` guards the tampering itself, so
+the test cannot silently degrade into asserting nothing. The docstring
+records why the old approach was unsafe, so the reasoning travels with the
+code rather than living only here.
+
+**Proof**, both methods applied to the SAME 2,000 distinct tokens:
+
+```
+generated 2000 DISTINCT tokens (2000 unique signatures)
+
+  NEW (decode, flip a byte, re-encode)
+    test would PASS: 2000/2000 (100.00%)
+    test would FAIL: 0/2000 (0.00%)
+
+  OLD (flip the final base64url char)
+    test would PASS: 1879/2000 (93.95%)
+    test would FAIL: 121/2000 (6.05%)
+```
+
+**Token distinctness is what makes the probe valid**, and is the part an
+earlier attempt got wrong. `exp` has second resolution, so reissuing in a
+tight loop produces the same token repeatedly; a probe that does so measures
+one signature 2,000 times and reports a 0% failure rate, which is what
+happened during the A4 investigation before the error was caught. Here the
+expiry is varied per iteration and distinctness is asserted
+(`len(set(tokens)) == TRIALS`) before anything is measured.
+
+The measured 6.05% matches the theoretical 4/64 = 6.25% and the 2/40 = 5%
+observed by running the real test in isolation during A4.
+
+**Suite, with nothing deselected:**
+
+```
+464 passed, 14 warnings in 215.48s (0:03:35)
+
+$ pytest -q --collect-only                                      -> 464
+$ pytest -q --collect-only --ignore=<the three Phase 22 files>  -> 373
+```
+
+This is the first fully green run of the suite since the flake was
+identified.
+
+**COMPLETE**
