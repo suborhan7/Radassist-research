@@ -224,7 +224,10 @@ def test_identical_neighbour_impression_scores_ratio_one_and_emits_no_violation(
 
     result = _check(service, content, cases)
     assert [v for v in result.violations if v.check == CHECK_TRANSPLANT] == []
-    assert CHECK_TRANSPLANT in result.checks_run
+    # Amendment 01(b): scored every run, but NOT listed while the threshold
+    # is None -- a check that cannot emit a violation has not 'run' in any
+    # sense a reader should be told about.
+    assert CHECK_TRANSPLANT not in result.checks_run
 
 
 def test_transplant_takes_the_maximum_across_neighbours():
@@ -344,12 +347,26 @@ def test_no_labeler_omits_contradiction_from_checks_run():
     result = _check(_service(labeler=None), _content(findings="f", impression="i"))
     assert CHECK_CONTRADICTION not in result.checks_run
     assert CHECK_TEMPORAL in result.checks_run
-    assert CHECK_TRANSPLANT in result.checks_run
+    # Amendment 01(b): absent until Gate B supplies a threshold.
+    assert CHECK_TRANSPLANT not in result.checks_run
 
 
 def test_labeler_present_adds_contradiction_to_checks_run():
     labeler = FakeLabeler(CONDITIONS, (CLASS_BLANK,) * 3, (CLASS_BLANK,) * 3)
     result = _check(_service(labeler), _content(findings="f", impression="i"))
+    # Amendment 01(b): transplant is missing because it has no threshold,
+    # so this is the full set MINUS transplant.
+    assert result.checks_run == (CHECK_TEMPORAL, CHECK_CONTRADICTION)
+
+
+def test_transplant_is_listed_once_a_threshold_is_supplied():
+    """Amendment 01(b), the other side: with a threshold the check can
+    emit a violation, so it is listed. The threshold is injected through
+    the constructor -- a test-only value, never a config default, because
+    inventing one before Gate B is what the frozen document forbids."""
+    labeler = FakeLabeler(CONDITIONS, (CLASS_BLANK,) * 3, (CLASS_BLANK,) * 3)
+    service = _service(labeler, ratio_threshold=0.99)
+    result = _check(service, _content(findings="f", impression="i"))
     assert result.checks_run == (CHECK_TEMPORAL, CHECK_TRANSPLANT, CHECK_CONTRADICTION)
 
 

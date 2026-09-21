@@ -12683,3 +12683,154 @@ recorded here rather than absorbed silently.
 > an accepted limitation with a named owner rather than presented as covered.
 
 **COMPLETE**
+
+---
+
+## Phase 22 Step A4.1 / Commit 1 — Amendment 01: the `partial` Consistency Status — 2026-09-21 — COMPLETE
+
+### Context
+
+A4 wired the consistency service and, where the frozen document
+(`fix_architecture_v1.2_FROZEN.md`, docs commit **810240ea**) was silent, made
+nine decisions, all raised for ratification. Review ratified eight and flagged
+decision #5: a report where only some checks ran, and those found nothing,
+reported status `"clean"`. That overstates assurance — a missing contradiction
+check disappeared into a clean verdict, which is precisely the failure mode
+Phase 22 exists to remove.
+
+`docs/phase22/amendment_01_consistency_status.md` records the amendment. The
+frozen document is not edited; the amendment sits beside it and takes
+precedence on these points.
+
+### Implementation & Validation
+
+**A fourth status, `partial`**: some but not all applicable checks ran, and
+those that ran found nothing. It must not be rendered as a pass — it licenses
+less than `clean`, not slightly less.
+
+**The applicable-checks rule, and the second instance it exposed.** A check is
+listed in `checks_run` only if it is *capable* of emitting a violation.
+Applying that rule surfaced a larger problem A4 had not noticed: **the
+transplant check was being listed as having run while structurally incapable
+of reporting anything**, because its threshold is deferred to Gate B. It is
+still scored on every report — `transplant_scores()` remains public and is
+what Gate B will calibrate from — but it is no longer counted as a check that
+ran. A check that cannot fail is not a check that passed.
+
+**Derivation order**, with each position load-bearing:
+
+```
+checks_run NULL or empty                    -> not_run
+any violation                               -> violations
+checks_run a STRICT SUBSET of applicable    -> partial
+otherwise                                   -> clean
+```
+
+`not_run` first, so nothing reaches `clean` or `partial` without a non-empty
+`checks_run`. `violations` outranks `partial` because the violation is the
+actionable fact. `partial` requires a *strict* subset, or no report could ever
+be clean.
+
+**One definition of the applicable set**, and deliberately a function of
+**language alone**:
+
+```python
+ALL_CHECKS = (CHECK_TEMPORAL, CHECK_TRANSPLANT, CHECK_CONTRADICTION)
+
+def applicable_checks(language):
+    return ALL_CHECKS if language == SUPPORTED_LANGUAGE else ()
+```
+
+Had "applicable" meant "what this process is configured to run", a degraded
+deployment would compute `applicable == checks_run` and report `clean` —
+reintroducing the overstatement in a harder-to-notice form. Defining it by
+language also lets a stored row be re-derived from its own `language` column
+without knowing anything about the process that wrote it.
+
+The API now also serves `applicable_checks` beside `checks_run`, so a client
+can name *which* checks are missing rather than only that some are. A status
+word cannot carry that.
+
+**Consequence, stated plainly and not hedged: until Gate B, every English
+report reads `partial`.** That is correct. One of three checks genuinely is
+not operational, and the previous `clean` asserted a completeness the system
+does not have.
+
+**Existing rows are not rewritten.** Counted:
+
+```
+total reports                                : 1802
+  consistency_checks_run IS NULL (pre-v1.2)  : 1796  -> not_run   (correct)
+  consistency_checks_run = []   (Bengali)    :    2  -> not_run   (correct)
+  consistency_checks_run NOT NULL            :    6
+  ...of which contain "transplant"           :    4  -> clean     (OVERSTATES)
+```
+
+**Four English rows written by A4 will read `clean` when they should read
+`partial`**, because A4 stored `transplant` under the old rule and the
+derivation trusts the stored list. Recorded rather than repaired: they are
+four smoke-test reports from this workstream, and rewriting stored history to
+match a later rule would make `checks_run` a derived value rather than a
+record of what happened — worse than a bounded, documented inconsistency.
+`created_at` separates them exactly. No such row may be cited as evidence a
+report was fully checked.
+
+**Tests.** Six new covering the amendment: labeler absent → `partial`;
+threshold `None` → transplant absent from `checks_run` and status `partial`;
+all applicable checks run with no violations → `clean` (via a **constructor-
+injected test-only threshold**, never a config default, since inventing a
+production threshold before Gate B is what the frozen document forbids);
+violation present with a partial set → `violations`; the strict-subset
+boundary; and the by-name gap `applicable - checks_run`. Three A1 service
+tests that asserted the old `checks_run` contract were updated, and one added
+for the threshold-supplied case.
+
+```
+463 passed, 1 deselected (the known JWT flake), 14 warnings in 210.16s
+
+$ pytest -q --collect-only                                       -> 464
+$ pytest -q --collect-only --ignore=<the three Phase 22 files>   -> 373
+```
+
+373 = 370 pre-Phase-22 + 3 regeneration tests in an existing file; the three
+Phase 22 modules hold 91 (34 + 25 + 32). The one failure in the un-deselected
+run was `test_jwt_verify_rejects_tampered_token`, the pre-existing ~5%
+intermittent characterised in A4 and fixed in commit 3 of this step.
+
+**The observational identity test still passes with its assertions
+unchanged** — only the expected `checks_run` contents moved, not the
+byte-identity claim.
+
+### How to Write This in Your Thesis
+
+> Review of the wiring step identified that the status reported to a clinician
+> could describe a report as clean when only a subset of the applicable checks
+> had actually run. A fourth status was introduced to distinguish a fully
+> checked report from a partially checked one, and the derivation was ordered
+> so that no report can be described as clean unless every check its language
+> entitles it to has run and found nothing.
+>
+> Applying that rule uncovered a second, larger instance of the same problem
+> that the initial review had not identified: one of the three checks was
+> being counted as having run despite having no calibrated threshold, and
+> therefore being structurally incapable of reporting anything. It is now
+> scored on every report — those scores are what the calibration will be
+> derived from — but is no longer counted as a completed check. The immediate
+> consequence is that every report in the supported language now reports as
+> partially checked rather than clean. This is a worse-looking result and a
+> more accurate one: the system's assurance had been overstated by a check
+> that could not fail, and the correction was to report the incompleteness
+> rather than to remove it.
+>
+> The set of checks a report is entitled to is defined as a function of its
+> language alone, rather than of how the running system happens to be
+> configured. Had it been defined by configuration, a deployment missing a
+> component would have computed its reduced set as complete and reported
+> clean — reintroducing the original defect in a form considerably harder to
+> notice. Records written before the amendment were not rewritten, and the
+> number affected, the direction of their error, and the means of identifying
+> them are recorded rather than corrected, on the grounds that a stored record
+> of what was checked should not be retroactively edited to match a later
+> rule.
+
+**COMPLETE**

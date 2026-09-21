@@ -61,9 +61,11 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_doctor, get_db
+import uuid
 from dataclasses import asdict
 
 from app.api.consistency_status import build_consistency_response
+from app.models.report import ReportRecord
 from app.api.schemas import (
     GenerationMetadataResponse,
     RegenerateSectionResponse,
@@ -168,6 +170,7 @@ def _build_response(detail: ReportDetail) -> ReportDetailResponse:
             detail.consistency_violations,
             detail.consistency_checks_run,
             detail.consistency_retry_count,
+            language=detail.language,
         ),
         audit_log=[
             ReportAuditLogEntryResponse(
@@ -372,6 +375,15 @@ def regenerate_section(
     # written to the report until the doctor accepts it via PATCH. It is
     # mapped through the SAME builder so the status word means the same thing
     # on every endpoint.
+    # Amendment 01: the applicable set is a function of the report's language,
+    # so the candidate's status is derived against the same set its parent
+    # report would be judged by. ConsistencyResult does not carry the
+    # language, so it is read explicitly -- a primary-key lookup on a row
+    # this request has already touched -- rather than inferred from whether
+    # any check happened to run.
+    record_language = (
+        db.query(ReportRecord.language).filter(ReportRecord.id == uuid.UUID(report_id)).scalar()
+    )
     snapshot = (
         ([asdict(v) for v in consistency.violations], list(consistency.checks_run),
          consistency.retry_count)
@@ -382,5 +394,5 @@ def regenerate_section(
         field=request_body.field,
         candidate=candidate,
         context_incomplete=context_incomplete,
-        consistency=build_consistency_response(*snapshot),
+        consistency=build_consistency_response(*snapshot, language=record_language),
     )

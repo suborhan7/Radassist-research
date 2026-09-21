@@ -145,5 +145,5 @@ def generate_report(
         formatted_report,
         validation,
         generation_metadata,
-        build_consistency_response(*consistency_snapshot),
+        build_consistency_response(*consistency_snapshot, language=request_body.language),
     )

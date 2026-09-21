@@ -168,7 +168,13 @@ class ConsistencyResponse(BaseModel):
 
     `status` is the one value a UI should branch on, and it is derived in
     exactly one place (app/api/consistency_status.derive_consistency_status):
-    "not_run" | "clean" | "violations".
+    "not_run" | "partial" | "clean" | "violations".
+
+    "partial" (amendment 01) means some but not all applicable checks ran and
+    those that ran found nothing. It must NOT be rendered as a pass. Until
+    Gate B calibrates the transplant threshold, every English report is
+    "partial", because that check cannot yet emit a violation and is
+    therefore not counted as having run.
 
     `checks_run` is what makes "not_run" distinguishable from "clean" and
     must be surfaced, not just used internally: a report where only some
@@ -184,6 +190,10 @@ class ConsistencyResponse(BaseModel):
 
     status: str
     checks_run: list[str] = []
+    # Amendment 01: what this report's language is ENTITLED to. Surfaced so a
+    # client can show which checks are missing, not merely that some are --
+    # `set(applicable_checks) - set(checks_run)` is the gap, by name.
+    applicable_checks: list[str] = []
     violations: list[ConsistencyViolationResponse] = []
     retry_count: int | None = None
 

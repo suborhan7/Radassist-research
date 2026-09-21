@@ -60,16 +60,6 @@ CHECK_TEMPORAL = "temporal"
 CHECK_TRANSPLANT = "transplant"
 CHECK_CONTRADICTION = "contradiction"
 
-SEVERITY_ERROR = "error"
-SEVERITY_WARNING = "warning"
-
-# The sections a check may be attributed to. FINDINGS is separated from the
-# other two because the Gate C retry never regenerates it (frozen document
-# §4.1) -- see _severity_for_field().
-FIELD_FINDINGS = "findings"
-FIELD_IMPRESSION = "impression"
-FIELD_RECOMMENDATION = "recommendation"
-
 # Structural facts, not tunable parameters, so they are named constants here
 # rather than injected values:
 #
@@ -79,6 +69,46 @@ FIELD_RECOMMENDATION = "recommendation"
 # This is not a setting a deployment can flip; changing it would require three
 # different checks (frozen document §3.4).
 SUPPORTED_LANGUAGE = "en"
+
+# Amendment 01 (docs/phase22/amendment_01_consistency_status.md), the SINGLE
+# definition of which checks a report of a given language is entitled to.
+#
+# "Applicable" means "this check ought to be able to run for this report", NOT
+# "this deployment currently runs it". The distinction is the whole mechanism:
+# comparing what DID run (checks_run) against what SHOULD be runnable
+# (applicable_checks) is what lets a partially-checked report say so, instead
+# of a missing check silently disappearing into a clean verdict.
+#
+# Deliberately a function of LANGUAGE ALONE, not of service configuration.
+# Were it to depend on whether a labeler happens to be loaded or a threshold
+# happens to be calibrated, then a report checked by a degraded deployment
+# would compute applicable == checks_run and report "clean" -- exactly the
+# overstatement this amendment exists to remove. It also means a stored row
+# can be re-derived at read time from its own `language` column, without
+# knowing anything about the process that wrote it.
+ALL_CHECKS: tuple[str, ...] = (CHECK_TEMPORAL, CHECK_TRANSPLANT, CHECK_CONTRADICTION)
+
+
+def applicable_checks(language: str) -> tuple[str, ...]:
+    """The checks a report in this language is entitled to (amendment 01).
+
+    English gets all three. Any other language gets none, because all three
+    detectors are English-only by construction (frozen §3.4) -- so for a
+    Bengali report `checks_run` and `applicable_checks` are both empty, which
+    the derivation reads as "not_run" rather than as a vacuous "clean".
+    """
+    return ALL_CHECKS if language == SUPPORTED_LANGUAGE else ()
+
+
+SEVERITY_ERROR = "error"
+SEVERITY_WARNING = "warning"
+
+# The sections a check may be attributed to. FINDINGS is separated from the
+# other two because the Gate C retry never regenerates it (frozen document
+# §4.1) -- see _severity_for_field().
+FIELD_FINDINGS = "findings"
+FIELD_IMPRESSION = "impression"
+FIELD_RECOMMENDATION = "recommendation"
 
 # EXCLUDED_CONDITIONS -- "No Finding" cannot participate in a contradiction.
 # Its head in the real CheXbert architecture has only 2 outputs, so it can
@@ -238,6 +268,23 @@ class ReportConsistencyService:
         self._transplant_ratio_threshold = transplant_ratio_threshold
         self._transplant_lcs_threshold = transplant_lcs_threshold
 
+    @property
+    def _transplant_enabled(self) -> bool:
+        """True once Gate B supplies either threshold. Until then the check
+        measures and reports nothing, so amendment 01(b) keeps it out of
+        checks_run."""
+        return (
+            self._transplant_ratio_threshold is not None
+            or self._transplant_lcs_threshold is not None
+        )
+
+    @staticmethod
+    def applicable_checks(language: str) -> tuple[str, ...]:
+        """Instance-accessible alias of the module-level definition, so a
+        caller holding the service does not need a second import. One
+        definition, two spellings -- see applicable_checks() above."""
+        return applicable_checks(language)
+
     # ------------------------------------------------------------------
     # public API
     # ------------------------------------------------------------------
@@ -272,8 +319,15 @@ class ReportConsistencyService:
         violations.extend(self._temporal_violations(content, has_prior_study))
         checks_run.append(CHECK_TEMPORAL)
 
+        # Amendment 01(b): the transplant check is SCORED in every run --
+        # transplant_scores() is what Gate B will calibrate from -- but it is
+        # listed in checks_run only when it is capable of emitting a
+        # violation, i.e. when a threshold exists. Listing it while it can
+        # never fire would let a report claim it had been checked for
+        # transplantation when nothing could have been found.
         violations.extend(self._transplant_violations(content, retrieved_cases))
-        checks_run.append(CHECK_TRANSPLANT)
+        if self._transplant_enabled:
+            checks_run.append(CHECK_TRANSPLANT)
 
         if self._labeler is not None:
             violations.extend(self._contradiction_violations(content))

@@ -29,6 +29,7 @@ from sqlalchemy.pool import StaticPool
 from app.api.consistency_status import (
     STATUS_CLEAN,
     STATUS_NOT_RUN,
+    STATUS_PARTIAL,
     STATUS_VIOLATIONS,
     build_consistency_response,
     derive_consistency_status,
@@ -47,6 +48,7 @@ from app.models.report import ReportRecord
 from app.models.retrieval_session import RetrievalSession
 from app.models.retrieved_evidence import RetrievedEvidence
 from app.services.report_consistency_service import (
+    ALL_CHECKS,
     CHECK_CONTRADICTION,
     CHECK_TEMPORAL,
     CHECK_TRANSPLANT,
@@ -54,6 +56,7 @@ from app.services.report_consistency_service import (
     CLASS_NEGATIVE,
     CLASS_POSITIVE,
     ReportConsistencyService,
+    applicable_checks,
 )
 from app.services.report_generation_service import (
     HAS_PRIOR_STUDY_V1_2,
@@ -296,7 +299,9 @@ def test_generated_output_is_byte_identical_with_and_without_the_consistency_ser
 
     # ...and the ONLY difference is the consistency snapshot
     assert snapshot_without == (None, None, None)
-    assert snapshot_with[1] == [CHECK_TEMPORAL, CHECK_TRANSPLANT]
+    # amendment 01(b): transplant is scored but not listed while its
+    # threshold is None, so only temporal ran here (no labeler injected).
+    assert snapshot_with[1] == [CHECK_TEMPORAL]
     assert len(snapshot_with[0]) >= 1, "this content should have produced a temporal violation"
 
 
@@ -318,17 +323,22 @@ def test_disclaimer_is_unchanged_by_the_consistency_service():
 # English, real service with a fake labeler
 # ======================================================================
 
-def test_english_with_labeler_records_all_three_checks():
+def test_english_with_labeler_records_the_runnable_checks():
     labeler = FakeLabeler((CLASS_BLANK,) * 3, (CLASS_BLANK,) * 3)
     db = _db()
     svc, _ = _service(db, CLEAN_CONTENT, consistency_service=_real_service(labeler))
     report_id, *_ = svc.generate(str(_seed(db, ["u1"])), "en")
 
     row = _row(db, report_id)
-    assert row.consistency_checks_run == [CHECK_TEMPORAL, CHECK_TRANSPLANT, CHECK_CONTRADICTION]
+    # amendment 01(b): transplant is scored every run but not listed until
+    # Gate B gives it a threshold, so it is absent and the status is
+    # "partial" rather than "clean".
+    assert row.consistency_checks_run == [CHECK_TEMPORAL, CHECK_CONTRADICTION]
     assert row.consistency_violations == []
     assert row.consistency_retry_count == 0
-    assert derive_consistency_status(row.consistency_checks_run, row.consistency_violations) == STATUS_CLEAN
+    assert derive_consistency_status(
+        row.consistency_checks_run, row.consistency_violations, applicable_checks("en")
+    ) == STATUS_PARTIAL
 
 
 def test_planted_temporal_term_is_persisted_as_a_violation():
@@ -344,7 +354,9 @@ def test_planted_temporal_term_is_persisted_as_a_violation():
     assert temporal[0]["field"] == "impression"
     # impression is regenerable by the Gate C retry, so this is an error
     assert temporal[0]["severity"] == "error"
-    assert derive_consistency_status(row.consistency_checks_run, row.consistency_violations) == STATUS_VIOLATIONS
+    assert derive_consistency_status(
+        row.consistency_checks_run, row.consistency_violations, applicable_checks("en")
+    ) == STATUS_VIOLATIONS
 
 
 def test_findings_located_temporal_term_is_warning_only():
@@ -376,7 +388,9 @@ def test_transplant_scores_are_computed_but_emit_no_violation_before_gate_b():
     report_id, *_ = svc.generate(str(_seed(db, ["u1"])), "en")
 
     row = _row(db, report_id)
-    assert CHECK_TRANSPLANT in row.consistency_checks_run
+    # amendment 01(b): scored, but NOT listed -- it cannot emit a violation
+    # while its threshold is None, so claiming it "ran" would overstate.
+    assert CHECK_TRANSPLANT not in row.consistency_checks_run
     assert [v for v in row.consistency_violations if v["check"] == CHECK_TRANSPLANT] == []
 
     scores = service.transplant_scores(content, [cases["u1"]])
@@ -421,33 +435,98 @@ def test_no_labeler_omits_contradiction_from_checks_run():
 
     row = _row(db, report_id)
     assert CHECK_CONTRADICTION not in row.consistency_checks_run
-    assert row.consistency_checks_run == [CHECK_TEMPORAL, CHECK_TRANSPLANT]
+    assert row.consistency_checks_run == [CHECK_TEMPORAL]
 
 
-def test_partial_checks_with_no_violations_report_status_clean():
-    """DECISION MADE IN A4, NEEDS RATIFICATION.
+def test_partial_checks_with_no_violations_report_status_partial():
+    """AMENDMENT 01, superseding A4 decision #5.
 
-    With no labeler, two of three checks run. Step 4's rule is
-    "checks_run non-empty and violations == [] -> clean", so this reports
-    "clean" even though the contradiction check never ran.
-
-    The information is not lost -- `checks_run` lists exactly which checks
-    earned the verdict, and the API surfaces it beside the status -- but the
-    single status word does not itself convey partiality. The alternative
-    (a fourth status, e.g. "partial") is NOT implemented here because the
-    frozen document does not define one and step 4 specifies these three.
+    With no labeler and no transplant threshold, only the temporal check can
+    emit a violation. Before the amendment this reported "clean", which
+    overstated assurance: two of three applicable checks never ran. It now
+    reports "partial", and `applicable_checks` names the gap.
     """
     db = _db()
     svc, _ = _service(db, CLEAN_CONTENT, consistency_service=_real_service(labeler=None))
     report_id, *_ = svc.generate(str(_seed(db, ["u1"])), "en")
 
     row = _row(db, report_id)
-    assert derive_consistency_status(row.consistency_checks_run, row.consistency_violations) == STATUS_CLEAN
-    # the partiality is recoverable from checks_run, which the API serves
-    assert len(row.consistency_checks_run) == 2
-    assert build_consistency_response(
-        row.consistency_violations, row.consistency_checks_run, row.consistency_retry_count
-    ).checks_run == [CHECK_TEMPORAL, CHECK_TRANSPLANT]
+    assert row.consistency_checks_run == [CHECK_TEMPORAL]
+    assert derive_consistency_status(
+        row.consistency_checks_run, row.consistency_violations, applicable_checks("en")
+    ) == STATUS_PARTIAL
+
+    block = build_consistency_response(
+        row.consistency_violations, row.consistency_checks_run,
+        row.consistency_retry_count, language="en",
+    )
+    assert block.status == STATUS_PARTIAL
+    assert block.checks_run == [CHECK_TEMPORAL]
+    assert block.applicable_checks == list(ALL_CHECKS)
+    # the gap is recoverable BY NAME, which a status word alone cannot carry
+    assert set(block.applicable_checks) - set(block.checks_run) == {
+        CHECK_TRANSPLANT, CHECK_CONTRADICTION
+    }
+
+
+def test_labeler_absent_yields_partial_and_a_strictly_smaller_check_set():
+    """Amendment 01: the specific case A4 #5 got wrong."""
+    labeler = FakeLabeler((CLASS_BLANK,) * 3, (CLASS_BLANK,) * 3)
+    db_a = _db()
+    svc_a, _ = _service(db_a, CLEAN_CONTENT, consistency_service=_real_service(labeler))
+    id_a, *_ = svc_a.generate(str(_seed(db_a, ["u1"])), "en")
+    row_a = _row(db_a, id_a)
+
+    db_b = _db()
+    svc_b, _ = _service(db_b, CLEAN_CONTENT, consistency_service=_real_service(labeler=None))
+    id_b, *_ = svc_b.generate(str(_seed(db_b, ["u1"])), "en")
+    row_b = _row(db_b, id_b)
+
+    for row in (row_a, row_b):
+        assert derive_consistency_status(
+            row.consistency_checks_run, row.consistency_violations, applicable_checks("en")
+        ) == STATUS_PARTIAL
+    assert set(row_b.consistency_checks_run) < set(row_a.consistency_checks_run)
+
+
+def test_all_applicable_checks_run_with_no_violations_yields_clean():
+    """The only route to "clean": every applicable check actually ran.
+
+    The transplant threshold is injected through the CONSTRUCTOR here, not
+    read from config -- a test-only value proving the mechanism. Inventing a
+    production threshold before Gate B is exactly what the frozen document
+    forbids.
+    """
+    labeler = FakeLabeler((CLASS_BLANK,) * 3, (CLASS_BLANK,) * 3)
+    checker = ReportConsistencyService(
+        temporal_terms=TERMS, labeler=labeler,
+        transplant_ratio_threshold=0.99,   # test-only, never from config
+    )
+    db = _db()
+    svc, _ = _service(db, CLEAN_CONTENT, consistency_service=checker)
+    report_id, *_ = svc.generate(str(_seed(db, ["u1"])), "en")
+
+    row = _row(db, report_id)
+    assert set(row.consistency_checks_run) == set(ALL_CHECKS)
+    assert row.consistency_violations == []
+    assert derive_consistency_status(
+        row.consistency_checks_run, row.consistency_violations, applicable_checks("en")
+    ) == STATUS_CLEAN
+
+
+def test_violation_outranks_partial():
+    """Amendment 01(c): a real violation is reported even when the check set
+    is incomplete. The violation is the actionable fact."""
+    db = _db()
+    svc, _ = _service(db, TEMPORAL_CONTENT, consistency_service=_real_service(labeler=None))
+    report_id, *_ = svc.generate(str(_seed(db, ["u1"])), "en")
+
+    row = _row(db, report_id)
+    assert set(row.consistency_checks_run) < set(ALL_CHECKS)   # incomplete
+    assert len(row.consistency_violations) >= 1
+    assert derive_consistency_status(
+        row.consistency_checks_run, row.consistency_violations, applicable_checks("en")
+    ) == STATUS_VIOLATIONS
 
 
 # ======================================================================
@@ -466,7 +545,9 @@ def test_bengali_persists_null_violations_empty_checks_run_and_reports_not_run()
     assert row.consistency_violations is None
     assert row.consistency_checks_run == []
     assert row.consistency_retry_count == 0
-    assert derive_consistency_status(row.consistency_checks_run, row.consistency_violations) == STATUS_NOT_RUN
+    assert derive_consistency_status(
+        row.consistency_checks_run, row.consistency_violations, applicable_checks("bn")
+    ) == STATUS_NOT_RUN
 
 
 def test_bengali_never_reports_clean_even_though_the_same_english_content_violates():
@@ -480,7 +561,9 @@ def test_bengali_never_reports_clean_even_though_the_same_english_content_violat
     svc_bn, _ = _service(db_bn, TEMPORAL_CONTENT, consistency_service=_real_service())
     id_bn, *_ = svc_bn.generate(str(_seed(db_bn, ["u1"])), "bn")
     row = _row(db_bn, id_bn)
-    assert derive_consistency_status(row.consistency_checks_run, row.consistency_violations) != STATUS_CLEAN
+    assert derive_consistency_status(
+        row.consistency_checks_run, row.consistency_violations, applicable_checks("bn")
+    ) not in (STATUS_CLEAN, STATUS_PARTIAL)
 
 
 # ======================================================================
@@ -503,7 +586,9 @@ def test_check_raising_still_produces_a_report_with_all_three_columns_null():
     # the report itself is intact
     assert row.final_content["findings"] == CLEAN_CONTENT.findings
     assert formatted.content.findings == CLEAN_CONTENT.findings
-    assert derive_consistency_status(row.consistency_checks_run, row.consistency_violations) == STATUS_NOT_RUN
+    assert derive_consistency_status(
+        row.consistency_checks_run, row.consistency_violations, applicable_checks("en")
+    ) == STATUS_NOT_RUN
 
 
 def test_check_raising_is_logged_with_the_report_id(caplog):
@@ -529,29 +614,41 @@ def test_no_consistency_service_leaves_all_three_columns_null():
 # status derivation -- the one shared function
 # ======================================================================
 
-@pytest.mark.parametrize("checks_run,violations,expected", [
-    (None, None, STATUS_NOT_RUN),          # pre-v1.2 row
-    ([], None, STATUS_NOT_RUN),            # Bengali
-    ([], [], STATUS_NOT_RUN),              # zero checks, empty list
-    (None, [], STATUS_NOT_RUN),            # inconsistent, read safely
-    (["temporal"], None, STATUS_NOT_RUN),  # inconsistent, read safely
-    (["temporal"], [], STATUS_CLEAN),
-    (["temporal", "transplant"], [], STATUS_CLEAN),
-    (["temporal"], [{"check": "temporal"}], STATUS_VIOLATIONS),
+@pytest.mark.parametrize("checks_run,violations,applicable,expected", [
+    (None, None, ALL_CHECKS, STATUS_NOT_RUN),            # pre-v1.2 row
+    ([], None, (), STATUS_NOT_RUN),                      # Bengali
+    ([], [], (), STATUS_NOT_RUN),                        # zero checks, empty list
+    (None, [], ALL_CHECKS, STATUS_NOT_RUN),              # inconsistent, read safely
+    (["temporal"], None, ALL_CHECKS, STATUS_NOT_RUN),    # inconsistent, read safely
+    (["temporal"], [], ALL_CHECKS, STATUS_PARTIAL),      # amendment 01
+    (["temporal", "contradiction"], [], ALL_CHECKS, STATUS_PARTIAL),
+    (list(ALL_CHECKS), [], ALL_CHECKS, STATUS_CLEAN),    # every applicable check ran
+    (["temporal"], [{"check": "temporal"}], ALL_CHECKS, STATUS_VIOLATIONS),
+    (list(ALL_CHECKS), [{"check": "temporal"}], ALL_CHECKS, STATUS_VIOLATIONS),
 ])
-def test_status_rules(checks_run, violations, expected):
-    assert derive_consistency_status(checks_run, violations) == expected
+def test_status_rules(checks_run, violations, applicable, expected):
+    assert derive_consistency_status(checks_run, violations, applicable) == expected
+
+
+def test_partial_requires_a_strict_subset():
+    """Equality is "clean", not "partial" -- otherwise no report could ever
+    be clean."""
+    assert derive_consistency_status(list(ALL_CHECKS), [], ALL_CHECKS) == STATUS_CLEAN
+    assert derive_consistency_status(list(ALL_CHECKS)[:2], [], ALL_CHECKS) == STATUS_PARTIAL
 
 
 def test_status_can_never_be_clean_without_a_non_empty_checks_run():
     """The safety property of the derivation, asserted directly."""
     for violations in (None, [], [{"check": "temporal"}]):
         for checks_run in (None, []):
-            assert derive_consistency_status(checks_run, violations) == STATUS_NOT_RUN
+            for applicable in (None, (), ALL_CHECKS):
+                assert derive_consistency_status(
+                    checks_run, violations, applicable
+                ) == STATUS_NOT_RUN
 
 
 def test_pre_v1_2_row_reports_not_run_through_the_response_builder():
-    block = build_consistency_response(None, None, None)
+    block = build_consistency_response(None, None, None, language="en")
     assert block.status == STATUS_NOT_RUN
     assert block.checks_run == []
     assert block.violations == []
@@ -562,7 +659,7 @@ def test_response_builder_maps_violation_fields():
     block = build_consistency_response(
         [{"check": "temporal", "severity": "error", "field": "impression",
           "detail": "d", "evidence": {"term": "stable"}}],
-        ["temporal"], 0,
+        ["temporal"], 0, language="en",
     )
     assert block.status == STATUS_VIOLATIONS
     assert block.violations[0].check == "temporal"
