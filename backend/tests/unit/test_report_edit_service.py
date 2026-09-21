@@ -358,7 +358,9 @@ def test_regenerate_section_returns_candidate_without_persisting():
     )
 
     service, fakes = _make_regenerate_service(db, {"u1": case_a}, [], context=None, candidate="new findings text")
-    candidate, context_incomplete, _consistency = service.regenerate_section(str(report_id), "findings", str(owner_id))
+    outcome = service.regenerate_section(str(report_id), "findings", str(owner_id))
+    candidate = outcome.candidate
+    context_incomplete = outcome.context_incomplete
 
     assert candidate == "new findings text"
     assert context_incomplete is False
@@ -440,7 +442,9 @@ def test_regenerate_section_context_incomplete_true_when_both_columns_null():
     case_a = RetrievedCase(source_uid="u1", similarity=0.9, findings="fa", impression="ia", labels=())
 
     service, fakes = _make_regenerate_service(db, {"u1": case_a}, [], context=None)
-    _, context_incomplete, _ = service.regenerate_section(str(report_id), "findings", str(owner_id))
+    context_incomplete = service.regenerate_section(
+        str(report_id), "findings", str(owner_id)
+    ).context_incomplete
 
     assert context_incomplete is True
 
@@ -456,7 +460,9 @@ def test_regenerate_section_context_incomplete_false_when_both_columns_real():
     case_a = RetrievedCase(source_uid="u1", similarity=0.9, findings="fa", impression="ia", labels=())
 
     service, fakes = _make_regenerate_service(db, {"u1": case_a}, [], context=None)
-    _, context_incomplete, _ = service.regenerate_section(str(report_id), "findings", str(owner_id))
+    context_incomplete = service.regenerate_section(
+        str(report_id), "findings", str(owner_id)
+    ).context_incomplete
 
     assert context_incomplete is False
 
@@ -500,7 +506,9 @@ def test_regenerate_section_context_incomplete_asymmetric_state_documented(
     case_a = RetrievedCase(source_uid="u1", similarity=0.9, findings="fa", impression="ia", labels=())
 
     service, fakes = _make_regenerate_service(db, {"u1": case_a}, [], context=None)
-    _, context_incomplete, _ = service.regenerate_section(str(report_id), "findings", str(owner_id))
+    context_incomplete = service.regenerate_section(
+        str(report_id), "findings", str(owner_id)
+    ).context_incomplete
 
     assert context_incomplete is False
 
@@ -641,7 +649,8 @@ def test_regenerate_section_returns_a_consistency_result_for_the_candidate():
         candidate="Stable cardiomegaly without overt pulmonary edema.",
         consistency_service=ReportConsistencyService(temporal_terms=TERMS_V12),
     )
-    candidate, _, consistency = service.regenerate_section(str(report_id), "impression", str(owner_id))
+    outcome = service.regenerate_section(str(report_id), "impression", str(owner_id))
+    candidate, consistency = outcome.candidate, outcome.consistency
 
     assert candidate == "Stable cardiomegaly without overt pulmonary edema."
     assert consistency is not None
@@ -678,5 +687,5 @@ def test_regenerate_section_returns_none_consistency_when_no_checker_is_wired():
     db = sessionmaker(bind=_make_engine())()
     owner_id, case_a, report_id = _regen_fixture(db)
     service, _ = _make_regenerate_service(db, {"u1": case_a}, [], context=None)
-    _, _, consistency = service.regenerate_section(str(report_id), "findings", str(owner_id))
-    assert consistency is None
+    outcome = service.regenerate_section(str(report_id), "findings", str(owner_id))
+    assert outcome.consistency is None

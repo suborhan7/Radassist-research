@@ -41,7 +41,9 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.domain.entities import (
+    ConsistencySnapshot,
     FormattedReport,
+    GenerationOutcome,
     GenerationMetadata,
     ReportStatus,
     RetrievalMetadata,
@@ -133,13 +135,7 @@ class ReportGenerationService:
         language: str,
         questionnaire_answers: dict[str, str] | None = None,
         clinical_notes: str = "",
-    ) -> tuple[
-        uuid.UUID,
-        FormattedReport,
-        SemanticValidationResult,
-        GenerationMetadata,
-        tuple[list | None, list | None, int | None],
-    ]:
+    ) -> GenerationOutcome:
         # Phase 9 additive extension: questionnaire_answers/clinical_notes
         # default to None/"" (same null-handling convention as
         # PromptBuilder's own build() defaults from Phase 6 --
@@ -201,10 +197,8 @@ class ReportGenerationService:
         # logged against the report it belongs to -- otherwise the only
         # identifier available at this point is the session.
         report_id = uuid.uuid4()
-        consistency_violations, consistency_checks_run, consistency_retry_count = (
-            self._run_consistency_check(
-                report_id, content, context, retrieved_cases, language
-            )
+        consistency = self._run_consistency_check(
+            report_id, content, context, retrieved_cases, language
         )
 
         # --- Input Admission and Modality Gate §7: the evidence support
@@ -317,9 +311,9 @@ class ReportGenerationService:
             # Phase 22 v1.2 (frozen §5). NULL and [] are different states and
             # the three values above were built to preserve that -- see
             # _run_consistency_check() for which case writes which.
-            consistency_violations=consistency_violations,
-            consistency_checks_run=consistency_checks_run,
-            consistency_retry_count=consistency_retry_count,
+            consistency_violations=consistency.violations,
+            consistency_checks_run=consistency.checks_run,
+            consistency_retry_count=consistency.retry_count,
         )
         self._db.add(report_record)
         try:
@@ -345,23 +339,25 @@ class ReportGenerationService:
         # service layer works in real uuid.UUID objects, and only the API
         # layer (Step 7) converts to str for JSON serialization, same as
         # app/api/retrieval.py's _build_response() does for session_id.
-        # Phase 22 v1.2: the three values EXACTLY AS PERSISTED are returned as
-        # a fifth element, rather than the ConsistencyResult they were built
-        # from. The route derives the response status from these, so what a
-        # caller sees on POST /generate-report is derived from the same values
+        # Phase 22 v1.2: `consistency` holds the three values EXACTLY AS
+        # PERSISTED, not the ConsistencyResult they were built from. The route
+        # derives the response status from these, so what a caller sees on
+        # POST /generate-report is derived from the same values
         # GET /reports/{id} will later read out of the row -- the two cannot
         # describe the same report differently. Returning them also avoids a
-        # redundant re-read of the row that was just written.
-        return (
-            report_record.id,
-            formatted_report,
-            validation_result,
-            generation_metadata,
-            (consistency_violations, consistency_checks_run, consistency_retry_count),
+        # redundant re-read of the row just written.
+        return GenerationOutcome(
+            report_id=report_record.id,
+            formatted_report=formatted_report,
+            validation=validation_result,
+            generation_metadata=generation_metadata,
+            consistency=consistency,
         )
 
-    def _run_consistency_check(self, report_id, content, context, retrieved_cases, language):
-        """Returns (violations, checks_run, retry_count) ready to persist.
+    def _run_consistency_check(
+        self, report_id, content, context, retrieved_cases, language
+    ) -> ConsistencySnapshot:
+        """Returns the ConsistencySnapshot ready to persist.
 
         GENERATION MUST NEVER FAIL BECAUSE OF THE CHECKER. Everything below
         is subordinate to that: this method has no raising path, and its
@@ -372,12 +368,12 @@ class ReportGenerationService:
 
         The three cases, per the frozen §5 NULL-vs-[] distinction:
 
-          checks ran (English)   -> ([...], [...], 0)
+          checks ran (English)   -> ConsistencySnapshot([...], [...], 0)
               A real list, possibly empty. An empty list here means the
               checks ran and found nothing, and checks_run names which ones
               earned that.
 
-          zero checks (non-English) -> (None, [], 0)
+          zero checks (non-English) -> ConsistencySnapshot(None, [], 0)
               Deliberately asymmetric, and specified this way in the step
               brief: checks_run == [] is a positive statement ("we know zero
               checks were applicable"), while violations == NULL is the
@@ -386,7 +382,7 @@ class ReportGenerationService:
               exactly the false assurance frozen §3.4/§8.8 forbids for
               Bengali reports.
 
-          checker raised         -> (None, None, None)
+          checker raised         -> ConsistencySnapshot.none()
               All three NULL: nothing is known, and nothing is claimed. The
               exception is logged with the report id.
 
@@ -397,7 +393,7 @@ class ReportGenerationService:
             # No checker wired: same honest "no recorded state" as a
             # pre-v1.2 row. Not logged as an error -- running without the
             # checker is a supported configuration in Gate A.
-            return None, None, None
+            return ConsistencySnapshot.none()
 
         started = time.perf_counter()
         try:
@@ -419,7 +415,7 @@ class ReportGenerationService:
                 "and persisted, and all three consistency columns stay NULL",
                 report_id,
             )
-            return None, None, None
+            return ConsistencySnapshot.none()
 
         # Logged per request so the check's real cost is observable in a
         # running system, not only in a benchmark. INFO because it is one
@@ -436,12 +432,16 @@ class ReportGenerationService:
 
         if not result.checks_run:
             # Non-English: zero checks were applicable.
-            return None, list(result.checks_run), result.retry_count
+            return ConsistencySnapshot(
+                violations=None,
+                checks_run=list(result.checks_run),
+                retry_count=result.retry_count,
+            )
 
-        return (
-            [asdict(v) for v in result.violations],
-            list(result.checks_run),
-            result.retry_count,
+        return ConsistencySnapshot(
+            violations=[asdict(v) for v in result.violations],
+            checks_run=list(result.checks_run),
+            retry_count=result.retry_count,
         )
 
     def _top1_similarity(self, session_id: uuid.UUID) -> float | None:

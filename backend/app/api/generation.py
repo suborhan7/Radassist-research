@@ -119,7 +119,7 @@ def generate_report(
     )
 
     try:
-        report_id, formatted_report, validation, generation_metadata, consistency_snapshot = service.generate(
+        outcome = service.generate(
             request_body.session_id,
             request_body.language,
             questionnaire_answers=request_body.questionnaire_answers,
@@ -140,10 +140,12 @@ def generate_report(
         ) from exc
 
     return _build_response(
-        report_id,
+        outcome.report_id,
         request_body.session_id,
-        formatted_report,
-        validation,
-        generation_metadata,
-        build_consistency_response(*consistency_snapshot, language=request_body.language),
+        outcome.formatted_report,
+        outcome.validation,
+        outcome.generation_metadata,
+        build_consistency_response(
+            *outcome.consistency.as_tuple(), language=request_body.language
+        ),
     )

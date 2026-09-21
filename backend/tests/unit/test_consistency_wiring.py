@@ -37,6 +37,7 @@ from app.api.consistency_status import (
 from app.database.base import Base
 from app.domain.entities import (
     ClinicalContext,
+    ConsistencySnapshot,
     EvidenceSummary,
     FormattedReport,
     ReportContent,
@@ -269,17 +270,15 @@ def test_generated_output_is_byte_identical_with_and_without_the_consistency_ser
     """
     db_with = _db()
     svc_with, uids = _service(db_with, TEMPORAL_CONTENT, consistency_service=_real_service())
-    id_with, formatted_with, validation_with, meta_with, snapshot_with = svc_with.generate(
-        str(_seed(db_with, ["u1"])), "en"
-    )
+    out_with = svc_with.generate(str(_seed(db_with, ["u1"])), "en")
 
     db_without = _db()
     svc_without, _ = _service(db_without, TEMPORAL_CONTENT, consistency_service=None)
-    id_without, formatted_without, validation_without, meta_without, snapshot_without = (
-        svc_without.generate(str(_seed(db_without, ["u1"])), "en")
-    )
+    out_without = svc_without.generate(str(_seed(db_without, ["u1"])), "en")
 
-    row_with, row_without = _row(db_with, id_with), _row(db_without, id_without)
+    row_with = _row(db_with, out_with.report_id)
+    row_without = _row(db_without, out_without.report_id)
+    formatted_with, formatted_without = out_with.formatted_report, out_without.formatted_report
 
     # the text a doctor reads
     assert row_with.final_content == row_without.final_content
@@ -294,26 +293,28 @@ def test_generated_output_is_byte_identical_with_and_without_the_consistency_ser
     assert row_with.language == row_without.language
     assert row_with.llm_model == row_without.llm_model
     assert row_with.llm_temperature == row_without.llm_temperature
-    assert validation_with == validation_without
-    assert meta_with == meta_without
+    assert out_with.validation == out_without.validation
+    assert out_with.generation_metadata == out_without.generation_metadata
 
     # ...and the ONLY difference is the consistency snapshot
-    assert snapshot_without == (None, None, None)
+    assert out_without.consistency == ConsistencySnapshot.none()
     # amendment 01(b): transplant is scored but not listed while its
     # threshold is None, so only temporal ran here (no labeler injected).
-    assert snapshot_with[1] == [CHECK_TEMPORAL]
-    assert len(snapshot_with[0]) >= 1, "this content should have produced a temporal violation"
+    assert out_with.consistency.checks_run == [CHECK_TEMPORAL]
+    assert len(out_with.consistency.violations) >= 1, (
+        "this content should have produced a temporal violation"
+    )
 
 
 def test_disclaimer_is_unchanged_by_the_consistency_service():
     """The disclaimer is rendered after the check; the check must not touch it."""
     db_with = _db()
     svc_with, _ = _service(db_with, TEMPORAL_CONTENT, consistency_service=_real_service())
-    id_with, *_ = svc_with.generate(str(_seed(db_with, ["u1"])), "en")
+    id_with = svc_with.generate(str(_seed(db_with, ["u1"])), "en").report_id
 
     db_without = _db()
     svc_without, _ = _service(db_without, TEMPORAL_CONTENT, consistency_service=None)
-    id_without, *_ = svc_without.generate(str(_seed(db_without, ["u1"])), "en")
+    id_without = svc_without.generate(str(_seed(db_without, ["u1"])), "en").report_id
 
     assert _row(db_with, id_with).final_content["disclaimer"] == \
            _row(db_without, id_without).final_content["disclaimer"]
@@ -327,7 +328,7 @@ def test_english_with_labeler_records_the_runnable_checks():
     labeler = FakeLabeler((CLASS_BLANK,) * 3, (CLASS_BLANK,) * 3)
     db = _db()
     svc, _ = _service(db, CLEAN_CONTENT, consistency_service=_real_service(labeler))
-    report_id, *_ = svc.generate(str(_seed(db, ["u1"])), "en")
+    report_id = svc.generate(str(_seed(db, ["u1"])), "en").report_id
 
     row = _row(db, report_id)
     # amendment 01(b): transplant is scored every run but not listed until
@@ -345,7 +346,7 @@ def test_planted_temporal_term_is_persisted_as_a_violation():
     labeler = FakeLabeler((CLASS_BLANK,) * 3, (CLASS_BLANK,) * 3)
     db = _db()
     svc, _ = _service(db, TEMPORAL_CONTENT, consistency_service=_real_service(labeler))
-    report_id, *_ = svc.generate(str(_seed(db, ["u1"])), "en")
+    report_id = svc.generate(str(_seed(db, ["u1"])), "en").report_id
 
     row = _row(db, report_id)
     temporal = [v for v in row.consistency_violations if v["check"] == CHECK_TEMPORAL]
@@ -367,7 +368,7 @@ def test_findings_located_temporal_term_is_warning_only():
     )
     db = _db()
     svc, _ = _service(db, content, consistency_service=_real_service())
-    report_id, *_ = svc.generate(str(_seed(db, ["u1"])), "en")
+    report_id = svc.generate(str(_seed(db, ["u1"])), "en").report_id
 
     violations = _row(db, report_id).consistency_violations
     assert [v["severity"] for v in violations] == ["warning"]
@@ -385,7 +386,7 @@ def test_transplant_scores_are_computed_but_emit_no_violation_before_gate_b():
     db = _db()
     service = _real_service()
     svc, _ = _service(db, content, consistency_service=service, cases=cases)
-    report_id, *_ = svc.generate(str(_seed(db, ["u1"])), "en")
+    report_id = svc.generate(str(_seed(db, ["u1"])), "en").report_id
 
     row = _row(db, report_id)
     # amendment 01(b): scored, but NOT listed -- it cannot emit a violation
@@ -405,7 +406,7 @@ def test_contradiction_is_persisted_when_the_labeler_reports_one():
     )
     db = _db()
     svc, _ = _service(db, CLEAN_CONTENT, consistency_service=_real_service(labeler))
-    report_id, *_ = svc.generate(str(_seed(db, ["u1"])), "en")
+    report_id = svc.generate(str(_seed(db, ["u1"])), "en").report_id
 
     violations = _row(db, report_id).consistency_violations
     contradictions = [v for v in violations if v["check"] == CHECK_CONTRADICTION]
@@ -431,7 +432,7 @@ def test_has_prior_study_false_is_passed_from_the_one_named_constant():
 def test_no_labeler_omits_contradiction_from_checks_run():
     db = _db()
     svc, _ = _service(db, CLEAN_CONTENT, consistency_service=_real_service(labeler=None))
-    report_id, *_ = svc.generate(str(_seed(db, ["u1"])), "en")
+    report_id = svc.generate(str(_seed(db, ["u1"])), "en").report_id
 
     row = _row(db, report_id)
     assert CHECK_CONTRADICTION not in row.consistency_checks_run
@@ -448,7 +449,7 @@ def test_partial_checks_with_no_violations_report_status_partial():
     """
     db = _db()
     svc, _ = _service(db, CLEAN_CONTENT, consistency_service=_real_service(labeler=None))
-    report_id, *_ = svc.generate(str(_seed(db, ["u1"])), "en")
+    report_id = svc.generate(str(_seed(db, ["u1"])), "en").report_id
 
     row = _row(db, report_id)
     assert row.consistency_checks_run == [CHECK_TEMPORAL]
@@ -474,12 +475,12 @@ def test_labeler_absent_yields_partial_and_a_strictly_smaller_check_set():
     labeler = FakeLabeler((CLASS_BLANK,) * 3, (CLASS_BLANK,) * 3)
     db_a = _db()
     svc_a, _ = _service(db_a, CLEAN_CONTENT, consistency_service=_real_service(labeler))
-    id_a, *_ = svc_a.generate(str(_seed(db_a, ["u1"])), "en")
+    id_a = svc_a.generate(str(_seed(db_a, ["u1"])), "en").report_id
     row_a = _row(db_a, id_a)
 
     db_b = _db()
     svc_b, _ = _service(db_b, CLEAN_CONTENT, consistency_service=_real_service(labeler=None))
-    id_b, *_ = svc_b.generate(str(_seed(db_b, ["u1"])), "en")
+    id_b = svc_b.generate(str(_seed(db_b, ["u1"])), "en").report_id
     row_b = _row(db_b, id_b)
 
     for row in (row_a, row_b):
@@ -504,7 +505,7 @@ def test_all_applicable_checks_run_with_no_violations_yields_clean():
     )
     db = _db()
     svc, _ = _service(db, CLEAN_CONTENT, consistency_service=checker)
-    report_id, *_ = svc.generate(str(_seed(db, ["u1"])), "en")
+    report_id = svc.generate(str(_seed(db, ["u1"])), "en").report_id
 
     row = _row(db, report_id)
     assert set(row.consistency_checks_run) == set(ALL_CHECKS)
@@ -519,7 +520,7 @@ def test_violation_outranks_partial():
     is incomplete. The violation is the actionable fact."""
     db = _db()
     svc, _ = _service(db, TEMPORAL_CONTENT, consistency_service=_real_service(labeler=None))
-    report_id, *_ = svc.generate(str(_seed(db, ["u1"])), "en")
+    report_id = svc.generate(str(_seed(db, ["u1"])), "en").report_id
 
     row = _row(db, report_id)
     assert set(row.consistency_checks_run) < set(ALL_CHECKS)   # incomplete
@@ -539,7 +540,7 @@ def test_bengali_persists_null_violations_empty_checks_run_and_reports_not_run()
     examined. The status must be "not_run", never "clean"."""
     db = _db()
     svc, _ = _service(db, TEMPORAL_CONTENT, consistency_service=_real_service())
-    report_id, *_ = svc.generate(str(_seed(db, ["u1"])), "bn")
+    report_id = svc.generate(str(_seed(db, ["u1"])), "bn").report_id
 
     row = _row(db, report_id)
     assert row.consistency_violations is None
@@ -554,12 +555,12 @@ def test_bengali_never_reports_clean_even_though_the_same_english_content_violat
     """Guards the test above from passing because the content was clean."""
     db_en = _db()
     svc_en, _ = _service(db_en, TEMPORAL_CONTENT, consistency_service=_real_service())
-    id_en, *_ = svc_en.generate(str(_seed(db_en, ["u1"])), "en")
+    id_en = svc_en.generate(str(_seed(db_en, ["u1"])), "en").report_id
     assert len(_row(db_en, id_en).consistency_violations) >= 1
 
     db_bn = _db()
     svc_bn, _ = _service(db_bn, TEMPORAL_CONTENT, consistency_service=_real_service())
-    id_bn, *_ = svc_bn.generate(str(_seed(db_bn, ["u1"])), "bn")
+    id_bn = svc_bn.generate(str(_seed(db_bn, ["u1"])), "bn").report_id
     row = _row(db_bn, id_bn)
     assert derive_consistency_status(
         row.consistency_checks_run, row.consistency_violations, applicable_checks("bn")
@@ -575,14 +576,15 @@ def test_check_raising_still_produces_a_report_with_all_three_columns_null():
     raiser = RaisingConsistencyService()
     db = _db()
     svc, _ = _service(db, CLEAN_CONTENT, consistency_service=raiser)
-    report_id, formatted, _, _, snapshot = svc.generate(str(_seed(db, ["u1"])), "en")
+    outcome = svc.generate(str(_seed(db, ["u1"])), "en")
+    report_id, formatted = outcome.report_id, outcome.formatted_report
 
     assert raiser.calls == 1
     row = _row(db, report_id)
     assert row.consistency_violations is None
     assert row.consistency_checks_run is None
     assert row.consistency_retry_count is None
-    assert snapshot == (None, None, None)
+    assert outcome.consistency == ConsistencySnapshot.none()
     # the report itself is intact
     assert row.final_content["findings"] == CLEAN_CONTENT.findings
     assert formatted.content.findings == CLEAN_CONTENT.findings
@@ -596,7 +598,7 @@ def test_check_raising_is_logged_with_the_report_id(caplog):
     db = _db()
     svc, _ = _service(db, CLEAN_CONTENT, consistency_service=raiser)
     with caplog.at_level("ERROR"):
-        report_id, *_ = svc.generate(str(_seed(db, ["u1"])), "en")
+        report_id = svc.generate(str(_seed(db, ["u1"])), "en").report_id
     assert str(report_id) in caplog.text
     assert "consistency check failed" in caplog.text
 
@@ -604,7 +606,7 @@ def test_check_raising_is_logged_with_the_report_id(caplog):
 def test_no_consistency_service_leaves_all_three_columns_null():
     db = _db()
     svc, _ = _service(db, CLEAN_CONTENT, consistency_service=None)
-    report_id, *_ = svc.generate(str(_seed(db, ["u1"])), "en")
+    report_id = svc.generate(str(_seed(db, ["u1"])), "en").report_id
     row = _row(db, report_id)
     assert (row.consistency_violations, row.consistency_checks_run,
             row.consistency_retry_count) == (None, None, None)

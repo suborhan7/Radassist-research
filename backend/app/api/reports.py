@@ -359,7 +359,7 @@ def regenerate_section(
         consistency_service=getattr(request.app.state, "consistency_service", None),
     )
     try:
-        candidate, context_incomplete, consistency = edit_service.regenerate_section(
+        outcome = edit_service.regenerate_section(
             report_id, request_body.field, current_doctor.id
         )
     except ReportNotFoundError as exc:
@@ -375,15 +375,11 @@ def regenerate_section(
     # written to the report until the doctor accepts it via PATCH. It is
     # mapped through the SAME builder so the status word means the same thing
     # on every endpoint.
-    # Amendment 01: the applicable set is a function of the report's language,
-    # so the candidate's status is derived against the same set its parent
-    # report would be judged by. ConsistencyResult does not carry the
-    # language, so it is read explicitly -- a primary-key lookup on a row
-    # this request has already touched -- rather than inferred from whether
-    # any check happened to run.
-    record_language = (
-        db.query(ReportRecord.language).filter(ReportRecord.id == uuid.UUID(report_id)).scalar()
-    )
+    # Amendment 01(d): the candidate is judged against the applicable set
+    # for its parent report's language, which the outcome carries -- no
+    # second query, and no inferring the language from whether any check
+    # happened to run.
+    consistency = outcome.consistency
     snapshot = (
         ([asdict(v) for v in consistency.violations], list(consistency.checks_run),
          consistency.retry_count)
@@ -392,7 +388,7 @@ def regenerate_section(
     )
     return RegenerateSectionResponse(
         field=request_body.field,
-        candidate=candidate,
-        context_incomplete=context_incomplete,
-        consistency=build_consistency_response(*snapshot, language=record_language),
+        candidate=outcome.candidate,
+        context_incomplete=outcome.context_incomplete,
+        consistency=build_consistency_response(*snapshot, language=outcome.language),
     )

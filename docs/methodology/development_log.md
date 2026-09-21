@@ -12834,3 +12834,99 @@ byte-identity claim.
 > rule.
 
 **COMPLETE**
+
+---
+
+## Phase 22 Step A4.1 / Commit 2 — Outcome Dataclasses Replace Generation Tuples — 2026-09-21 — COMPLETE
+
+### Context
+
+A4 decisions #2 and #3 were ratified as decisions — `generate()` returning the
+persisted consistency snapshot rather than the route re-reading the row, and
+`regenerate_section()` returning the candidate's verdict — but their *shape*
+was flagged. Both had become positional tuples: five elements and three, with
+more expected.
+
+The threshold where a tuple stops being adequate is not stylistic. It is the
+point at which a caller can no longer tell what a position means without
+counting commas, and at which adding a field silently breaks every existing
+unpack. Both had crossed it.
+
+### Implementation & Validation
+
+**Three frozen dataclasses in the domain layer** (`app/domain/entities.py`),
+beside `SemanticValidationResult` and the Phase 22 consistency types:
+
+- **`ConsistencySnapshot`** — the three values *exactly as persisted*, with
+  `none()` and `as_tuple()` helpers. Deliberately distinct from
+  `ConsistencyResult`, which is what the checker *returns*. The two differ,
+  and the difference is the whole point: a non-English report produces a
+  result with empty `checks_run` but is **persisted** with
+  `violations = None` (frozen §5's NULL-vs-`[]` distinction). Having a named
+  type for the persisted form means an API layer deriving a status reads
+  exactly what a later `GET` of the same row will read.
+- **`GenerationOutcome`** — `report_id`, `formatted_report`, `validation`,
+  `generation_metadata`, `consistency`.
+- **`RegenerationOutcome`** — `candidate`, `context_incomplete`,
+  `consistency`, `language`.
+
+**`RegenerationOutcome.language` removes a query that commit 1 had to add.**
+Amendment 01(d) makes the applicable-check set a function of language, so the
+regeneration route needs the parent report's language to judge the candidate
+against the same set. Commit 1 obtained it with a primary-key lookup in the
+route. The service already holds the row, so the outcome now carries it and
+the extra query is gone. A refactor that removes a real read rather than only
+renaming things.
+
+**D5's field has a home.** Decision D5 — record the structural/content retry
+attempt count, currently unrecorded, which blocks D3
+(`docs/decisions/decision_log.md`) — will add its attempt count as a **named
+field on `GenerationOutcome`**, not as a sixth positional slot. That is stated
+here so the next person implementing D5 does not have to rediscover it, and
+it is recorded in the dataclass's own docstring rather than only in this log.
+
+**No behaviour change.** Every value returned is the value that was returned
+before, under a name instead of an index. Confirmed by the suite rather than
+by inspection.
+
+**The observational identity test passes with its assertions unchanged.** What
+changed is how the values are reached — `out_with.formatted_report` instead of
+a tuple position — not what is compared. Every comparison in that test is the
+same comparison: `final_content`, `ai_draft_content`, formatted content,
+section headers, language, validation warnings, status, model, temperature,
+the validation result and the generation metadata, and that the sole
+difference is the consistency snapshot. The `ConsistencySnapshot.none()`
+comparison is if anything stricter than the old `== (None, None, None)`, since
+it also asserts the type.
+
+```
+463 passed, 1 deselected, 14 warnings in 221.01s
+
+$ pytest -q --collect-only                                      -> 464
+$ pytest -q --collect-only --ignore=<the three Phase 22 files>  -> 373
+```
+
+373 = 370 pre-Phase-22 + 3 regeneration tests in an existing file. The
+deselection is the known pre-existing JWT flake, fixed in commit 3.
+
+### How to Write This in Your Thesis
+
+> Two service methods had accumulated multi-valued positional return types as
+> the consistency feature was added — five values and four respectively — with
+> a further field already anticipated. These were replaced with named result
+> objects. The change carries no behavioural difference and the test suite was
+> used to establish that rather than assumed, but it removes a class of defect
+> that positional returns make easy: a caller that misreads a position, or an
+> addition that silently invalidates every existing unpacking. It also gave
+> one anticipated but unimplemented field a defined location, so that the
+> decision it belongs to can be implemented without revisiting the shape of
+> the interface.
+>
+> One incidental improvement is worth noting because it illustrates why the
+> refactor was not merely cosmetic. The status derivation introduced in the
+> preceding change requires the report's language, which the calling layer did
+> not have and had been obtaining with an additional database query. The
+> service performing the work already held that value; making the return type
+> a named object gave it somewhere to travel, and the extra query was removed.
+
+**COMPLETE**

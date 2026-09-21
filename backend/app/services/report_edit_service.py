@@ -51,6 +51,7 @@ from sqlalchemy.orm import Session
 
 from app.domain.entities import (
     ConsistencyResult,
+    RegenerationOutcome,
     EditableReportField,
     ReportContent,
     ReportStatus,
@@ -149,8 +150,8 @@ class ReportEditService:
 
     def regenerate_section(
         self, report_id: str, field: EditableReportField, current_doctor_id: str
-    ) -> tuple[str, bool, ConsistencyResult | None]:
-        """Returns (candidate, context_incomplete, consistency). No DB write -- Decision
+    ) -> RegenerationOutcome:
+        """Returns a RegenerationOutcome. No DB write -- Decision
         1: nothing is persisted until the doctor accepts the candidate via
         the existing update_content() (PATCH /reports/{id}), same as any
         other edit. `field` is trusted to already be one of
@@ -220,7 +221,16 @@ class ReportEditService:
         consistency = self._run_candidate_consistency_check(
             record, field, candidate, context, retrieved_cases
         )
-        return candidate, context_incomplete, consistency
+        return RegenerationOutcome(
+            candidate=candidate,
+            context_incomplete=context_incomplete,
+            consistency=consistency,
+            # Amendment 01(d): the applicable-check set is a function of
+            # language, and the API needs it to judge the candidate against
+            # the same set its parent report is judged by. Carried here
+            # rather than re-queried -- this service has the row already.
+            language=record.language,
+        )
 
     def _run_candidate_consistency_check(
         self, record, field, candidate, context, retrieved_cases

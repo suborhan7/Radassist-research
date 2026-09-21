@@ -404,3 +404,71 @@ class ConsistencyResult:
     has_violation: bool
     checks_run: tuple[str, ...]
     retry_count: int
+
+
+@dataclass(frozen=True)
+class ConsistencySnapshot:
+    """The three consistency values EXACTLY AS PERSISTED on a report.
+
+    Deliberately distinct from ConsistencyResult, which is what the checker
+    RETURNS. The two differ, and the difference is the point: a non-English
+    report produces a result with empty `checks_run`, but is PERSISTED with
+    `violations = None` (frozen §5's NULL-vs-[] distinction). This type holds
+    the persisted form, so an API layer deriving a status reads exactly what
+    a later GET of the same row will read.
+
+    All three fields nullable together: a checker that raised, or was never
+    wired, records nothing at all rather than a fabricated clean verdict.
+    """
+    violations: list | None
+    checks_run: list | None
+    retry_count: int | None
+
+    @classmethod
+    def none(cls) -> "ConsistencySnapshot":
+        """Nothing was recorded -- no checker, or the check raised."""
+        return cls(violations=None, checks_run=None, retry_count=None)
+
+    def as_tuple(self) -> tuple[list | None, list | None, int | None]:
+        """For call sites that still spread the three values positionally,
+        e.g. build_consistency_response(*snapshot.as_tuple())."""
+        return self.violations, self.checks_run, self.retry_count
+
+
+@dataclass(frozen=True)
+class GenerationOutcome:
+    """Everything ReportGenerationService.generate() produces.
+
+    Replaces a 5-tuple. The tuple was already at five elements with more
+    expected -- decision D5's structural attempt count is the next field, and
+    it will be ADDED HERE, as a named field, not appended to a positional
+    tuple whose sixth slot no caller could read without counting commas.
+
+    Named fields also make the unused-value case honest: a caller that wants
+    only the id writes `outcome.report_id` rather than `_, _, _, _, _`.
+    """
+    report_id: object
+    formatted_report: object
+    validation: object
+    generation_metadata: object
+    consistency: ConsistencySnapshot
+
+
+@dataclass(frozen=True)
+class RegenerationOutcome:
+    """Everything ReportEditService.regenerate_section() produces.
+
+    `consistency` is a ConsistencyResult (the checker's own return), NOT a
+    ConsistencySnapshot: a regenerated candidate is never persisted, so there
+    is no persisted form of it. Nothing here is written to the report's
+    consistency columns, which describe the generation-time AI draft.
+
+    `language` is carried because the applicable-check set is a function of
+    it (amendment 01(d)), and the API needs it to derive the candidate's
+    status against the same set its parent report is judged by. Carrying it
+    beats re-querying the row the service has already loaded.
+    """
+    candidate: str
+    context_incomplete: bool
+    consistency: object | None
+    language: str
