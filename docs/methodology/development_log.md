@@ -11749,3 +11749,218 @@ differently-produced results are both reported and neither is presented as a
 correction of the other.
 
 **FROZEN.**
+
+---
+
+## Phase 22 Gate A / Step A1 — ReportConsistencyService Core, Observational and Unwired — 2026-09-21 — COMPLETE
+
+### Context
+
+Phase 22 Step 0 diagnosed the S1 grounding-attribution failure in generated
+reports to four root causes, each backed by a measurement on Phase 21 Arm C
+(n=477): no requirement that IMPRESSION be consistent with this report's
+FINDINGS; neighbour text rendered verbatim with no attribution boundary and no
+anti-copying instruction; no prior-study state and no temporal-language
+restriction; and a semantic validator that concatenates the two sections before
+inspecting them and therefore cannot represent the failure at all. The fix
+architecture was frozen at docs commit **810240ea**
+(`docs/phase22/fix_architecture_v1.2_FROZEN.md`), with exactly one parameter
+deliberately deferred: the neighbour-transplant threshold, to be calibrated at
+Gate B.
+
+Step A0 preserved the evaluated system before any v1.2 code existed: annotated
+tag **`v1.1-evaluated`** at `a107d4ef`, and all work on branch
+**`phase22-v1.2`**. Phase 20/21 results describe the tagged commit and are not
+re-run.
+
+Step A1 builds the new service's core only. It is deliberately **observational
+and unwired**: nothing constructs it, nothing calls it, and no prompt, model,
+migration or API route is touched. Wiring is a later step, and the retry is
+Gate C. The purpose of separating them is that a service which is not yet
+called cannot change any Phase 21 number, so this step is provably
+result-neutral.
+
+### Implementation & Validation
+
+**Scope, verified rather than asserted.** `git diff --stat` against the freeze
+commit:
+
+```
+ backend/app/core/config.py       | 68 ++++++++++++++++++++++++++++++++++++++++
+ backend/app/domain/entities.py   | 66 ++++++++++++++++++++++++++++++++++++++
+ backend/app/domain/interfaces.py | 63 +++++++++++++++++++++++++++++++++++++
+ 3 files changed, 197 insertions(+)
+```
+
+**197 insertions, zero deletions, zero modified lines**, plus two new files
+(`app/services/report_consistency_service.py`,
+`tests/unit/test_report_consistency_service.py`). `ReportGenerationService`,
+`ReportEditService`, `prompt_builder.py`, `response_validator.py`, every
+SQLAlchemy model, every migration and every API route are untouched.
+
+**Measurement identity — the stop condition.** The frozen document requires the
+production transplant check and the diagnostic measurement to be one definition
+of "copied", not two that happen to agree. `_tokens`, `_five_grams` and
+`_longest_common_token_run` were **moved** out of
+`scratch/phase22_diagnosis/measure_transplant.py` into the backend service.
+`scratch/phase22_diagnosis/verify_measurement_identity.py` imports them **from
+the backend module** and re-runs diagnosis.md §2a on Arm C n=477:
+
+```
+scoring functions imported from: backend\app\services\report_consistency_service.py
+
+completed cases            : 477
+unscorable (<5 tokens)     : 124
+scorable for ratio         : 353
+ratio == 1.0               : 83/353
+ratio quartiles            : {'n': 353, 'min': 0.0, 'q1': 0.0, 'median': 0.2857, 'q3': 0.8837, 'max': 1.0}
+LCS quartiles              : {'n': 477, 'min': 0.0, 'q1': 4.0, 'median': 5.0, 'q3': 8.0, 'max': 42.0}
+
+--- identity against docs/phase22/diagnosis.md §2a ---
+  MATCH   completed cases    got=477  expected=477
+  MATCH   unscorable         got=124  expected=124
+  MATCH   scorable           got=353  expected=353
+  MATCH   ratio == 1.0       got=83  expected=83
+  MATCH   ratio quartiles    got={'n': 353, 'min': 0.0, 'q1': 0.0, 'median': 0.2857, 'q3': 0.8837, 'max': 1.0}  expected={'n': 353, 'min': 0.0, 'q1': 0.0, 'median': 0.2857, 'q3': 0.8837, 'max': 1.0}
+  MATCH   LCS quartiles      got={'n': 477, 'min': 0.0, 'q1': 4.0, 'median': 5.0, 'q3': 8.0, 'max': 42.0}  expected={'n': 477, 'min': 0.0, 'q1': 4.0, 'median': 5.0, 'q3': 8.0, 'max': 42.0}
+
+ALL MATCH -- backend scoring functions reproduce diagnosis.md §2a exactly.
+```
+
+Exact reproduction on all six assertions, including both quartile dicts. The
+script exits non-zero on any mismatch, so this is a runnable regression guard
+rather than a one-off check.
+
+**Test suite.** New module: 31 tests. Full backend suite:
+
+```
+401 passed, 14 warnings in 179.01s (0:02:59)
+```
+
+Pre-existing tests are unaffected, confirmed by collection arithmetic rather
+than by assertion:
+
+```
+$ pytest -q --collect-only                                            -> 401 tests collected
+$ pytest -q --collect-only --ignore=tests/unit/test_report_consistency_service.py
+                                                                      -> 370 tests collected
+```
+
+370 pre-existing + 31 new = 401, all passing, zero failures.
+
+**What the 31 tests pin down.** Beyond the brief's required cases
+(`stable` matches, `unstable` does not, `Stable` matches, `compared with`
+matches as a phrase, per-field attribution, `has_prior_study=True` suppresses,
+identical neighbour scores 1.0 with no violation emitted, Positive-vs-Negative
+contradicts, Positive-vs-absent does not, `No Finding` never contradicts, no
+labeler omits the check from `checks_run`, `bn` yields `checks_run == ()`),
+three additions were made because the specified set could pass for the wrong
+reason:
+
+- `test_identical_english_content_would_have_violated` — guards the Bengali
+  test, which would otherwise pass if the content were simply clean.
+- `test_sections_are_labelled_separately_never_concatenated` — asserts the fake
+  labeler receives `["FINDINGS TEXT", "IMPRESSION TEXT"]` as two texts. The
+  defect that blinds `ResponseValidator` to this failure class is precisely
+  that it builds one combined string first, so "separately" needed a test, not
+  a comment.
+- `test_short_impression_is_unscorable_not_zero` — the `<5` token rule that
+  produced n=353 of 477 must record `None`, not a clean `0.0`.
+
+The Bengali test also asserts `labeler.calls == []`: a non-English report must
+not even invoke the labeler, so the skip is structural rather than a discarded
+result.
+
+**Three design points that are decisions, not defaults.**
+
+1. **`checks_run` is what makes "not run" distinguishable from "clean."** An
+   empty `violations` tuple means the report passed *only* when the check
+   appears in `checks_run`. A non-English report returns `checks_run == ()`,
+   and a missing labeler omits `"contradiction"` from it. This is the same
+   no-recorded-state-is-not-clean-state discipline `ReportGenerationService`
+   already applies to `retrieval_support`.
+2. **FINDINGS violations are `severity="warning"`, not `"error"`.** The Gate C
+   retry regenerates impression/recommendation and never findings, so an error
+   raised against findings could not be acted on. This is not cosmetic: in the
+   Arm C baseline, temporal terms are far commoner in findings than impression
+   (stable 96 vs 44, unchanged 27 vs 6, interval 27 vs 5), so **most** temporal
+   violations will be warning-only.
+3. **The transplant threshold stayed `None`, and the scores are still
+   exposed.** With no threshold the check emits no violation — but discarding
+   the scores would make Gate B's calibration impossible to run on real
+   production data. `transplant_scores()` is therefore public and returns the
+   same dict shape the violation's `evidence` will carry, so the calibrated
+   version needs no second format and no number had to be invented to have
+   somewhere to record them.
+
+**Held-out list containment, checked and reported precisely.** The frozen
+document's held-out evaluation synonyms (§6.4) must not reach the model. A
+`grep -ril` sweep over `backend/app` and `backend/tests` for all ten found: the
+configured term list is clean, and the new service and test modules contain
+none of them as terms. Three incidental prose hits exist and are **not** leaks:
+"no change" and "as before" appear in pre-existing comments in
+`app/api/retrieval.py`, `app/services/report_edit_service.py` and two
+admission-gate tests; "residual" appears in a pre-existing comment at
+`config.py:89` (verified present in `HEAD` before this change); and "still"
+appears six times as an ordinary English adverb in the new modules' docstrings.
+None is a scoring term, none is in the term configuration, and
+`prompt_builder.py` is untouched, so no path exists from any of them to a
+prompt. Recorded rather than silently reworded, because "the list does not
+appear under `backend/`" and "the list cannot reach the model" are different
+claims and only the second is what matters.
+
+**Two deviations from the step brief, both reported rather than chosen
+silently.** Neither conflicts with the frozen document.
+
+- **Test location.** The brief named `tests/services/`. All ~30 existing
+  service test modules live in `backend/tests/unit/` and no `tests/services/`
+  directory exists, so the new module follows the established layout rather
+  than starting a second one for a single file.
+- **Domain type location.** The brief scoped edits to "new files plus additions
+  to `app/domain/interfaces.py` and `app/core/config.py` only", but
+  `ConsistencyViolation`/`ConsistencyResult` are domain types that
+  `interfaces.py` must reference. Putting them in `app/services/` would make
+  the domain layer import infrastructure, inverting the dependency the Protocol
+  layer exists to prevent. They were added to `app/domain/entities.py`, beside
+  `SemanticValidationResult` — their direct analogue — as a purely additive
+  change (66 insertions, 0 deletions).
+
+### How to Write This in Your Thesis
+
+> The remediation was implemented in stages deliberately ordered so that the
+> evaluated system could not be disturbed by the fix. The system as measured
+> was first preserved under an annotated tag, and the first implementation step
+> added the new self-consistency service in an observational, unwired form: the
+> component and its tests exist, but nothing in the generation pipeline
+> constructs or calls it, and no prompt, schema or route is altered. A step
+> that cannot execute cannot change a result, so the previously reported
+> measurements remain attributable to the tagged system without requiring an
+> argument that the change was harmless.
+>
+> Two properties of the implementation are worth stating because they concern
+> measurement validity rather than software structure. First, the text-overlap
+> functions used by the production check are the same code that produced the
+> diagnostic prevalence figures, moved rather than reimplemented, and a
+> verification script re-runs the published measurement through the production
+> module and asserts exact reproduction of all six reported statistics,
+> including both quartile distributions. A check that scored "copying"
+> differently from the analysis that motivated it would leave the reported
+> prevalence and the deployed safeguard measuring two different things. Second,
+> the service distinguishes a check that ran and found nothing from a check
+> that could not run: results carry an explicit record of which checks
+> executed, so a report in a language the detectors do not cover is reported as
+> unchecked rather than as clean. The distinction matters because the failure
+> mode being guarded against is a false assurance, and an interface that
+> rendered "not assessed" identically to "assessed and satisfactory" would
+> reintroduce exactly that.
+>
+> One parameter was left uncalibrated by design. The threshold separating
+> acceptable reuse of retrieved phrasing from clinically meaningful
+> transplantation was not fixed at implementation time, because the diagnostic
+> data showed that roughly three-quarters of verbatim reproductions are stock
+> normal phrasing carrying no positive finding; a threshold on textual overlap
+> alone would therefore flag benign and harmful cases indistinguishably. The
+> check computes and exposes its scores while emitting no judgement, so the
+> threshold can be calibrated from real measurements rather than assumed.
+
+**COMPLETE**

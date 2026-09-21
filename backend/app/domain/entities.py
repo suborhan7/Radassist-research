@@ -338,3 +338,69 @@ class Report:
     evidence: tuple[RetrievedCase, ...] = field(default_factory=tuple)
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+
+# --- Phase 22 v1.2: report self-consistency -------------------------------
+# Frozen architecture: docs/phase22/fix_architecture_v1.2_FROZEN.md §3
+# (frozen at docs commit 810240ea). These live here, beside
+# SemanticValidationResult, because that is where every other domain result
+# type in this project lives -- ReportConsistencyService is the producer, but
+# a domain type that app/domain/interfaces.py must reference cannot live in
+# app/services/ without inverting the dependency the Protocol layer exists to
+# prevent.
+
+
+@dataclass(frozen=True)
+class ConsistencyViolation:
+    """One self-consistency problem found in a generated report.
+
+    `severity` is "error" or "warning". Per the frozen document §4.1, a
+    violation located in FINDINGS is ALWAYS "warning": the Gate C retry
+    regenerates only impression/recommendation, so an error raised against
+    findings could never be acted on. That is the honest consequence of the
+    retry's scope, not a softening of the check -- the violation is still
+    detected, still reported and still counted in every evaluation metric.
+
+    `evidence` is check-specific and machine-readable, so a violation can be
+    re-examined without re-running the check:
+      temporal      -> {"term", "section", "span", "context"}
+      transplant    -> {"neighbour_uid", "ratio", "lcs_tokens", "matched_span"}
+      contradiction -> {"label", "findings_class", "impression_class"}
+    """
+    check: str
+    severity: str
+    field: str
+    detail: str
+    evidence: dict
+
+
+@dataclass(frozen=True)
+class ConsistencyResult:
+    """ReportConsistencyService output.
+
+    `checks_run` names the checks that actually executed. It exists so that a
+    skipped check is recorded as NOT RUN rather than silently passing: an empty
+    `violations` tuple means "ran clean" only when the check appears in
+    `checks_run`. A non-English report returns `checks_run == ()`, which the UI
+    must render as "consistency checks not run" and never as a clean state
+    (frozen document §3.4 / §8.8) -- the same
+    no-recorded-state-is-not-clean-state discipline ReportGenerationService
+    already applies to `retrieval_support`.
+
+    `has_violation` is True when ANY violation was recorded, of either
+    severity. It is deliberately NOT the Gate C retry trigger: that trigger is
+    the narrower "at least one violation with severity == 'error'" (frozen
+    document §4 step 2), read from `violations` at the call site. The two must
+    not be conflated -- a report with only warning-severity findings-located
+    violations has `has_violation is True` and must NOT be retried.
+
+    `retry_count` is this service's own semantic-retry count (0 or 1). It is
+    NOT D5's structural/content retry count, which counts a different
+    mechanism with a different budget and is deliberately not implemented here
+    (see docs/decisions/decision_log.md). In Gate A the service is
+    observational and this is always 0.
+    """
+    violations: tuple[ConsistencyViolation, ...]
+    has_violation: bool
+    checks_run: tuple[str, ...]
+    retry_count: int

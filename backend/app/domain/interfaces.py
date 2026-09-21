@@ -7,11 +7,13 @@ swappable and every service unit-testable behind a mock.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Protocol, runtime_checkable
 
 from app.domain.entities import (
     ClinicalContext,
     ComparisonFacts,
+    ConsistencyResult,
     Doctor,
     EditableReportField,
     EvidenceSummary,
@@ -320,3 +322,64 @@ class ITokenService(Protocol):
 
     def issue(self, doctor_id: str) -> str: ...
     def verify(self, token: str) -> str: ...  # returns doctor_id or raises
+
+
+@runtime_checkable
+class ISectionLabeler(Protocol):
+    """Phase 22 v1.2: a clinical-finding labeler over report TEXT, returning
+    the RAW 4-class index per condition, not a binarised present/absent.
+
+    Raw, deliberately. CheXbert's own downstream convention (and this
+    project's ml/evaluation/score_chexbert.py) collapses
+    {Blank, Negative} -> 0 and {Positive, Uncertain} -> 1, which makes
+    "explicitly negated" indistinguishable from "never mentioned". The
+    findings/impression contradiction check needs exactly that distinction --
+    a contradiction is Positive in one section and NEGATIVE in the other --
+    so it cannot be computed from binarised labels at all. Class indices
+    follow CheXbert's own constants: {0: Blank, 1: Positive, 2: Negative,
+    3: Uncertain}.
+
+    `label()` takes several texts at once and returns one row per text, in
+    the same order, each row one class index per entry of `conditions`. Batch
+    rather than one-call-per-section because the two sections of a report are
+    a single forward pass on the real implementation.
+
+    Implementation is Step A2 (CheXbert). Nothing in Step A1 depends on a
+    concrete labeler -- ReportConsistencyService takes one optionally and
+    omits the contradiction check entirely when none is supplied.
+    """
+
+    @property
+    def conditions(self) -> tuple[str, ...]: ...
+
+    def label(self, texts: Sequence[str]) -> tuple[tuple[int, ...], ...]: ...
+
+
+@runtime_checkable
+class IReportConsistencyChecker(Protocol):
+    """Phase 22 v1.2: does this report contradict itself, fabricate a
+    comparison it cannot have, or reproduce another patient's text?
+
+    Deliberately NOT merged into IResponseValidator. That validator's subject
+    is the model's claims against RETRIEVED EVIDENCE, it concatenates findings
+    and impression before inspecting them (so cross-section contradiction is
+    not even representable), and it is frozen as advisory by Phase 8
+    Decision 1. This is a different question about a different subject, so it
+    is a different collaborator. Infrastructure:
+    app/services/report_consistency_service.py
+
+    `has_prior_study` is a parameter rather than a constant because §3.1's
+    temporal check is only meaningful relative to it. In v1.2 both generation
+    entry points pass False -- no prior-study state reaches generation (frozen
+    document §3.5) -- but the branch has somewhere to attach when that state
+    is eventually plumbed through, without a later signature change.
+    """
+
+    def check(
+        self,
+        content: ReportContent,
+        context: ClinicalContext,
+        retrieved_cases: Sequence[RetrievedCase],
+        language: str,
+        has_prior_study: bool,
+    ) -> ConsistencyResult: ...

@@ -179,6 +179,61 @@ DEFAULT_IMAGE_MAX_PIXELS = 80_000_000
 #   3 positives + blank negs: 4/6 pass-correct, 4/4 reject-correct
 # This is a probe, not the §11.2 calibration procedure. Rule F4 still
 # applies: do not report these numbers as a calibration result.
+# --- Phase 22 v1.2: report self-consistency -----------------------------
+# Frozen architecture: docs/phase22/fix_architecture_v1.2_FROZEN.md
+# (frozen at docs commit 810240ea).
+
+# The PROMPT-SIDE temporal term list (frozen document §2(iii) / §3.1). These
+# are the terms the generation prompt names AND the terms
+# ReportConsistencyService matches -- deliberately the same list, because the
+# instruction given to the model is meant to be followable.
+#
+# Consequence, stated here because it constrains how results may be read: a
+# detector that looks for exactly the words the model was told to avoid cannot
+# by itself distinguish a real fix from word-avoidance. The evaluation
+# therefore ALSO scores a HELD-OUT synonym list, which is frozen in the
+# architecture document (§6.4), is scoring-only, and deliberately appears
+# NOWHERE in backend/ -- not in this setting, not in a prompt, not in a test.
+# A held-out term that reaches the model, or this config, is burned.
+#
+# Pipe-separated, following MODALITY_PROMPTS_POSITIVE's precedent in this same
+# module: the terms are multi-word ("compared with"), and a comma is the more
+# likely character to appear inside a future term than a pipe.
+#
+# Measured precision of this exact matcher on real Arm C output: 19/20 = 95.0%
+# (docs/phase22/diagnosis.md §5.3) -- roughly 1 flag in 20 is a false positive,
+# which is acceptable for a check whose worst case is one extra targeted retry.
+DEFAULT_CONSISTENCY_TEMPORAL_TERMS = (
+    "stable"
+    "|unchanged"
+    "|interval"
+    "|again"
+    "|redemonstrated"
+    "|persistent"
+    "|previously"
+    "|compared with"
+    "|new"
+)
+
+# The consistency service's OWN semantic-retry budget (frozen document §4): at
+# most one targeted regeneration of impression/recommendation, with the
+# specific violation named in the retry prompt.
+#
+# This is a THIRD, independent budget, separate from LLM_CONTENT_RETRY_COUNT
+# and LLM_TRANSPORT_RETRY_COUNT above. It is emphatically NOT D5's structural
+# attempt count, which counts a different mechanism (StructuralValidator
+# rejections) with a different trigger and is deliberately not implemented in
+# v1.2 -- see docs/decisions/decision_log.md.
+#
+# One, not more: Phase 8 Decision 1's reasoning ("a second LLM attempt is not
+# guaranteed to be less hallucinated, only differently worded") applies here
+# too. One retry that NAMES the violation is a corrective instruction and a
+# genuinely different prompt; a second would be closer to a resample.
+#
+# UNUSED IN GATE A. The service is observational at this step and performs no
+# retry; this value is read for the first time at Gate C.
+DEFAULT_CONSISTENCY_RETRY_COUNT = 1
+
 DEFAULT_MODALITY_PROMPTS_POSITIVE = (
     "a chest radiograph"
     "|a chest X-ray"
@@ -362,6 +417,9 @@ class Settings(BaseSettings):
     RETRIEVAL_FLOOR: float = DEFAULT_RETRIEVAL_FLOOR
     PROJECTION_REJECT_THRESHOLD: float = DEFAULT_PROJECTION_REJECT_THRESHOLD
     DISCLAIMER_AGREEMENT_THRESHOLD: float = DEFAULT_DISCLAIMER_AGREEMENT_THRESHOLD
+    # Phase 22 v1.2 (frozen doc 810240ea) -- see the DEFAULT_ block above
+    CONSISTENCY_TEMPORAL_TERMS: str = DEFAULT_CONSISTENCY_TEMPORAL_TERMS
+    CONSISTENCY_RETRY_COUNT: int = DEFAULT_CONSISTENCY_RETRY_COUNT
     ACCEPTED_PROJECTIONS: str = DEFAULT_ACCEPTED_PROJECTIONS
     DECLARED_PROJECTION_VALUES: str = DEFAULT_DECLARED_PROJECTION_VALUES
 
@@ -378,6 +436,16 @@ class Settings(BaseSettings):
         instead of collapsing into "not declared"."""
         return tuple(
             p.strip().upper() for p in self.DECLARED_PROJECTION_VALUES.split(",") if p.strip()
+        )
+
+    @property
+    def consistency_temporal_terms(self) -> tuple[str, ...]:
+        """Phase 22 §3.1's term list, parsed. Pipe-separated because the terms
+        are multi-word; blank entries are dropped so a trailing pipe in an
+        environment override is not read as an empty term (which would compile
+        to a pattern matching every position in the text)."""
+        return tuple(
+            t.strip() for t in self.CONSISTENCY_TEMPORAL_TERMS.split("|") if t.strip()
         )
 
     @property
