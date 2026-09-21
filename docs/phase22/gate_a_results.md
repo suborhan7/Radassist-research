@@ -7,7 +7,7 @@
 | **Run plan** | [`gate_a_run_plan.md`](gate_a_run_plan.md), committed `55e8bc08506cb3eb6066e117d9d53bbb00c3a7f5` at 2026-09-22 01:09:38 +0600 — **before any v1.2 report existed** |
 | **Baseline** | stored Phase 21 Arm C (`generation_arm_full_n477`), paired per uid |
 | **Outputs** | `ml/outputs/evaluation/generation_v1.2_gateA_n477/` |
-| **Verdict** | **ADOPT** on the three gating criteria; **one withhold trigger remains open** (manual read not yet performed) |
+| **Verdict** | **ADOPT** on the three gating criteria (unchanged under both primary-endpoint definitions); **one withhold trigger remains open** (manual read not yet performed) |
 
 ---
 
@@ -75,21 +75,73 @@ runtime adapter, so both arms are labelled by the same instrument.
 
 ### 3.1 Primary — temporal-term rate (gates)
 
-| | v1.1 | v1.2 | diff | 95% CI | n |
+Reported under **both** definitions the frozen document supports; see
+[§3.1.1](#311-deviations-from-pre-registration) for why there are two. The
+frozen-definition figure is the primary one.
+
+| definition | v1.1 | v1.2 | diff | 95% CI | n |
 |---|---|---|---|---|---|
-| **temporal-term rate** | **0.3899** (186/477) | **0.0503** (24/477) | **−0.3396** | **[−0.3836, −0.2998]** | 477 |
-| same, n=100 pilot | 0.4600 (46/100) | 0.0500 (5/100) | −0.4100 | [−0.5100, −0.3200] | 100 |
+| **FROZEN (primary)** — 5 terms, findings+impression | **0.3501** (167/477) | **0.0273** (13/477) | **−0.3229** | **[−0.3648, −0.2830]** | 477 |
+| run-plan (secondary) — 9 terms, +recommendation | 0.3899 (186/477) | 0.0503 (24/477) | −0.3396 | [−0.3836, −0.2998] | 477 |
+| run-plan, n=100 pilot | 0.4600 (46/100) | 0.0500 (5/100) | −0.4100 | [−0.5100, −0.3200] | 100 |
 
-**Decreases, CI excludes zero → PASS.**
+**Decreases with CI excluding zero under both definitions → PASS.**
 
-> **Why 186/477 and not the frozen document's 167/477.** The run plan (§3.1,
-> pre-registered) defines this endpoint over **nine** prompt-side terms across
-> **findings, impression and recommendation**. `diagnosis.md` §2b's headline
-> 167/477 used **five** terms across **findings and impression only**. The
-> paired comparison is unaffected — both arms are measured identically — and
-> under §2b's own definition this run reproduces its baseline **exactly**
-> (see §6, post-hoc: v1.1 = 167/477 = 0.3501). The drop holds under both
-> definitions.
+The frozen definition reproduces the frozen document's own baseline exactly:
+167/477 = 0.3501.
+
+### 3.1.1 Deviations from pre-registration
+
+**What differs.** The run plan (§3.1) fixed the primary endpoint over **nine**
+terms across **findings, impression and recommendation**. The frozen
+document's stated baseline for the same endpoint — `temporal-term rate
+(primary list) 0.3501 k=167/477`, `fix_architecture_v1.2_FROZEN.md` line
+734 — was computed over **five** terms across **findings and impression
+only** (`diagnosis.md` §2b).
+
+**Why it happened, stated plainly: the frozen document supports both
+readings, and they are not consistent with each other.**
+
+Its §3.1, lines 241–249, defines the *check*:
+
+> | **Input** | `content.findings`, `content.impression`, `content.recommendation`; `has_prior_study: bool` |
+>
+> Term list is the §2b list, config-driven, and is **the same list named in the
+> prompt** (§2(iii)) — the model is told exactly what the detector looks for…
+>
+> — `fix_architecture_v1.2_FROZEN.md` §3.1, lines 244, 251–252
+
+That is three sections, and §2(iii)'s prompt list is the nine terms
+*stable, unchanged, interval, again, redemonstrated, persistent, previously,
+compared with, new*. The run plan followed this.
+
+Its §6.2, line 734, carries the baseline **number**, and that number came from
+`diagnosis.md` §2b's headline, which is five terms over two sections. The two
+cannot both describe one metric.
+
+This was not noticed when the run plan was written: the run plan quoted §3.1's
+input and §2(iii)'s list, and quoted §6.3's baseline sentence, without
+checking that the quoted number had been produced by a narrower rule. That is
+a real pre-registration defect and it is recorded here rather than resolved
+quietly in favour of whichever figure reads better.
+
+**Resolution.** The frozen-definition result is reported as the primary figure,
+because that is the definition the frozen document's own baseline instantiates
+and it is the more conservative of the two (fewer terms, fewer sections, so
+fewer opportunities to count a hit). The run-plan definition is reported as
+secondary.
+
+**The verdict is unchanged.** Both definitions decrease with a 95% CI
+excluding zero:
+
+```
+FROZEN   v1.1=0.3501 (167/477)  v1.2=0.0273 (13/477)  diff=-0.3229  CI [-0.3648, -0.2830]
+RUN-PLAN v1.1=0.3899 (186/477)  v1.2=0.0503 (24/477)  diff=-0.3396  CI [-0.3836, -0.2998]
+VERDICT UNCHANGED UNDER BOTH DEFINITIONS? True
+```
+
+Neither guardrail depends on this definition at all, so criteria 2 and 3 are
+untouched.
 
 ### 3.2 Clinical guardrail — CheXbert impression micro-F1 (gates, δ = 0.05)
 
@@ -162,7 +214,7 @@ dropped or redefined.
 
 | criterion | result |
 |---|---|
-| 1. primary temporal decreases, CI excludes zero (n=477) | **PASS** |
+| 1. primary temporal decreases, CI excludes zero (n=477) | **PASS** — frozen definition −0.3229 [−0.3648, −0.2830]; run-plan definition −0.3396 [−0.3836, −0.2998] (§3.1.1) |
 | 2. micro-F1 CI lower bound > −0.05 | **PASS** (+0.0314) |
 | 3. ROUGE-L CI lower bound > −0.03 | **PASS** (−0.0024) |
 | **ADOPT v1.2?** | **YES on the three gating criteria** |
@@ -222,37 +274,180 @@ precisely because it was not pre-registered as an endpoint.
 
 ## 6. Post-hoc, not pre-registered
 
-Neither analysis below was in the run plan. Both are reported because they
-change how §3 should be read.
+None of the analyses below was in the run plan. **No number here is a
+criterion and the verdict is not revisited.** They are reported because
+several of them change how §3 should be read — in one case, decisively.
 
-**(a) The primary endpoint under `diagnosis.md` §2b's own definition** (five
-terms, findings and impression only):
+Same bootstrap configuration throughout (B=2,000, seed 42, percentile,
+paired), and the same frozen CheXbert evaluation path for both arms.
+
+### 6.1 Is the improvement just shorter text?
+
+This is the obvious alternative explanation for §3's results, and §6(b) of the
+original write-up flagged it as untested. It is now tested, and the answer is
+no.
+
+**(a) Micro precision and recall, separately — the decisive test.**
+
+| | v1.1 | v1.2 | diff | 95% CI |
+|---|---|---|---|---|
+| micro **precision** | 0.5112 | 0.5863 | **+0.0750** | [+0.0400, +0.1110] |
+| micro **recall** | 0.5395 | 0.5909 | **+0.0514** | [+0.0178, +0.0859] |
+
+**Both rose, and both CIs exclude zero.** If shortening were the mechanism,
+precision would rise (fewer assertions, fewer false positives) while recall
+**fell** (fewer assertions, fewer true positives caught). Recall rose instead.
+v1.2 writes less and catches *more* of what the reference says. That is not
+what truncation looks like.
+
+**(b) Per-label precision, recall and support — no pooling.**
+
+Support is the number of reference-positive cases and is identical across arms
+by construction (same references, same uids).
+
+| label | support | P v1.1 | R v1.1 | P v1.2 | R v1.2 | |
+|---|---|---|---|---|---|---|
+| Enlarged Cardiomediastinum | 6 | 0.000 | 0.000 | 0.000 | 0.000 | **support < 10 — unreliable** |
+| Cardiomegaly | 25 | 0.250 | 0.440 | 0.364 | 0.320 | |
+| Lung Opacity | 46 | 0.216 | 0.239 | 0.250 | 0.283 | |
+| Lung Lesion | 15 | 0.120 | 0.200 | 0.154 | 0.133 | |
+| Edema | 9 | 0.143 | 0.222 | 0.364 | 0.444 | **support < 10 — unreliable** |
+| Consolidation | 4 | 0.000 | 0.000 | 0.000 | 0.000 | **support < 10 — unreliable** |
+| Pneumonia | 20 | 0.214 | 0.150 | 0.100 | 0.050 | |
+| Atelectasis | 27 | 0.140 | 0.259 | 0.171 | 0.259 | |
+| Pneumothorax | 1 | n/a | 0.000 | n/a | 0.000 | **support < 10 — unreliable** |
+| Pleural Effusion | 17 | 0.333 | 0.294 | 0.364 | 0.235 | |
+| Pleural Other | 5 | 0.111 | 0.200 | 0.333 | 0.200 | **support < 10 — unreliable** |
+| Fracture | 7 | 0.000 | 0.000 | 0.000 | 0.000 | **support < 10 — unreliable** |
+| Support Devices | 2 | 0.000 | 0.000 | 0.000 | 0.000 | **support < 10 — unreliable** |
+| No Finding | 322 | 0.777 | 0.714 | 0.766 | 0.804 | |
+
+Seven of fourteen labels have support below 10 and their figures should not be
+read as estimates of anything. Of the seven with usable support, the movements
+are mixed — **Pneumonia is clearly worse** (recall 0.150 → 0.050 on support
+20), Cardiomegaly trades recall for precision, and the aggregate is carried by
+`No Finding` (support 322), whose recall rises 0.714 → 0.804. That is worth
+stating plainly: **the micro-F1 improvement is substantially a "No Finding"
+improvement**, and the per-label picture is not uniformly favourable.
+
+**(c) Does v1.2 stay silent about findings the reference reports?**
+
+Cases where the generated impression carries **no** positive label on the 13
+real conditions while the **reference** impression carries at least one:
 
 ```
-v1.1 167/477 = 0.3501   (diagnosis 2b reported 167/477 = 0.3501 -- exact match)
-v1.2  13/477 = 0.0273   diff = -0.3229
+v1.1: 56/477 = 0.1174   (gen-empty 338, ref-has 116)
+v1.2: 56/477 = 0.1174   (gen-empty 365, ref-has 116)
 ```
 
-The frozen baseline is reproduced **exactly**, and the drop is
-−0.3229 against the pre-registered definition's −0.3396. The primary result is
-robust to which of the two definitions is used.
+**Identical — 56 in both.** v1.2's impressions are empty of positive labels
+more often overall (338 → 365), but the extra silence falls entirely on cases
+where the reference is also negative. It does not miss a real finding more
+often than v1.1 did. This is the strongest single piece of evidence against
+the shortening-harms hypothesis.
 
-**(b) Impression length**, because it bears directly on §3.4's denominator:
+**(d) Word-count distributions, reported separately.**
+
+| field | version | min | Q1 | median | Q3 | max |
+|---|---|---|---|---|---|---|
+| findings | v1.1 | 10 | 33.0 | 48.0 | 61.0 | 181 |
+| findings | **v1.2** | 6 | 24.0 | **30.0** | 35.0 | 109 |
+| impression | v1.1 | 1 | 4.0 | 9.0 | 18.0 | 73 |
+| impression | **v1.2** | 1 | 4.0 | **5.0** | 12.0 | 62 |
+
+Both sections shortened, findings substantially (median 48 → 30, −38%), and
+the long tail compressed (max 181 → 109). The shortening is real and is not
+confined to impressions.
+
+**(e) Temporal-term rate restricted to FINDINGS only** — the less confounded
+test, since findings shortened proportionally less than impressions:
+
+| terms | v1.1 | v1.2 | diff | 95% CI |
+|---|---|---|---|---|
+| frozen 5-term | 0.2872 (137/477) | **0.0126** (6/477) | −0.2746 | [−0.3145, −0.2348] |
+| run-plan 9-term | 0.3208 (153/477) | 0.0210 (10/477) | −0.2998 | [−0.3417, −0.2600] |
+
+**Findings length fell 38%; the findings temporal rate fell 96%** (137 → 6).
+Shortening cannot produce a 96% reduction from a 38% length cut unless
+temporal language were concentrated in exactly the removed text, which the
+per-section numbers give no reason to believe. Instruction (iii) changed what
+the model writes, not merely how much.
+
+### 6.2 Transplant on a common denominator
+
+§3.4 flagged that the scorable denominator fell 353 → 280 because the
+transplant ratio is undefined below 5 tokens, so part of that improvement
+might be unscorability rather than less copying. Restricting to uids scorable
+in **both** arms removes the confound entirely:
 
 ```
-v1.1 mean=13.4  median=9  min=1  max=73   under 5 words: 124
-v1.2 mean= 9.3  median=5  min=1  max=62   under 5 words: 197
+scorable in v1.1 only : 92
+scorable in v1.2 only : 19
+scorable in BOTH      : 261
+
+harmful transplant, common denominator, paired, n=261:
+  v1.1=0.0805 (21/261)   v1.2=0.0383 (10/261)   diff=-0.0421  CI [-0.0728, -0.0153]
 ```
 
-**v1.2 impressions are substantially shorter.** This is not a pre-registered
-endpoint and no claim is made about whether it is good or bad, but it is the
-mechanism behind the transplant scorable denominator falling 353 → 280, and
-it means part of the harmful-transplant improvement in §3.4 may be shorter
-text rather than less copying. It also plausibly relates to the micro-F1
-improvement, since a shorter impression asserts fewer labels and can reduce
-false positives. **Neither possibility is tested here.**
+**The improvement survives, with the CI still excluding zero.** On the
+identical 261 cases, harmful transplantation roughly halves. The denominator
+shift inflated the headline figure in §3.4 but did not create it.
 
----
+### 6.3 Residual defect: a "normal" impression over abnormal findings
+
+Phase 22's constraint (ii) forbids the impression asserting what findings did
+not state. It says nothing about the **reverse** — an impression omitting what
+findings *did* state — and that failure mode survives.
+
+Cases where the generated **findings** carry ≥1 CheXbert-positive real
+condition while the generated **impression** carries none:
+
+```
+v1.2:  27/477 = 0.0566
+v1.1:  90/477 = 0.1887   (context only)
+```
+
+v1.2 is roughly **three times better** here than v1.1, unprompted — but 27
+cases remain, and they are a real internal inconsistency. Note this is
+measured against the report's **own** findings, not the reference: §6.1(c)
+shows v1.2 does not miss reference findings more often. The defect is
+*self*-inconsistency, not under-detection.
+
+Five cases sampled at **seed 20260922**:
+
+> **uid=951** — findings-positive: Atelectasis
+> *Findings:* "…**Mild right basilar atelectasis** and relative elevation of the right hemidiaphragm are noted…"
+> *Impression:* "The chest X-ray is **normal**, with no evidence of active cardiopulmonary disease."
+
+> **uid=2486** — findings-positive: Lung Opacity
+> *Findings:* "…The right lung base shows **minimal opacity**, which may represent **minimal right basilar airspace disease**."
+> *Impression:* "The chest X-ray is **normal**, with no acute cardiopulmonary abnormality."
+
+> **uid=3461** — findings-positive: Lung Opacity
+> *Findings:* "**The lung opacities are seen throughout the lungs**, with more focal **streaky bibasilar opacities**… prominent coarse interstitial markings throughout the lungs."
+> *Impression:* "**No acute cardiopulmonary abnormality**"
+
+> **uid=2982** — findings-positive: Support Devices
+> *Findings:* "…There is an IVC [REDACTED] identified. The right upper extremity **PICC tip is in the upper SVC**. Surgical clips in the right upper abdomen."
+> *Impression:* "No acute cardiopulmonary disease."
+
+> **uid=3681** — findings-positive: Support Devices
+> *Findings:* "…The **support devices** are intact."
+> *Impression:* "No acute cardiopulmonary abnormalities are seen."
+
+**Three of the five are genuine omissions** (951, 2486, 3461): the findings
+section describes atelectasis or opacity and the impression calls the study
+normal. uid=3461 is the worst — opacities "throughout the lungs" summarised as
+"no acute cardiopulmonary abnormality".
+
+**Two are arguably labeler artifacts** (2982, 3681): the positive label is
+`Support Devices`, a device rather than a pathology, and an impression that
+does not mention a PICC line is not obviously wrong. Support Devices has
+reference support 2 in this corpus and is flagged unreliable in §6.1(b).
+
+This is a residual defect of the **opposite** direction to the one Phase 22
+targeted, it is not covered by any check in v1.2, and no endpoint measures it.
+Recorded for Gate B/C scoping.
 
 ## 7. Limitations
 
@@ -280,6 +475,21 @@ false positives. **Neither possibility is tested here.**
 - **The manual read has not happened.** Its withhold trigger is open.
 - **Content-retry attempts are unobservable** (D5), so the structural result
   is "0/477 failed after retries", not "0/477 needed no retry".
+- **The primary endpoint had two defensible definitions** in the frozen
+  document, and the run plan fixed the wider one without noticing the
+  frozen baseline came from the narrower one (§3.1.1). Both are reported;
+  the verdict is the same either way.
+- **The micro-F1 gain is substantially a `No Finding` gain** (support 322,
+  recall 0.714 → 0.804). Seven of fourteen labels have support below 10 and
+  are unreliable; among those with usable support the picture is mixed, and
+  **Pneumonia is clearly worse** (recall 0.150 → 0.050 on support 20). See
+  §6.1(b).
+- **A residual defect survives, in the opposite direction to the one fixed.**
+  27/477 v1.2 reports state an abnormality in findings and call the study
+  normal in the impression (§6.3). Constraint (ii) forbids the impression
+  asserting what findings did not state; it does not forbid the impression
+  omitting what findings did. No check in v1.2 covers this and no endpoint
+  measures it.
 
 ---
 
