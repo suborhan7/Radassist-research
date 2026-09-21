@@ -11964,3 +11964,221 @@ silently.** Neither conflicts with the frozen document.
 > threshold can be calibrated from real measurements rather than assumed.
 
 **COMPLETE**
+
+---
+
+## Phase 22 Gate A / Step A2 — CheXbert Runtime Labeler, Equivalence Proven in Three Layers — 2026-09-21 — COMPLETE
+
+### Context
+
+Step A1 added `ReportConsistencyService` with an optional `ISectionLabeler`;
+with none injected, the findings/impression contradiction check is omitted
+from `checks_run` rather than reported as clean. Step A2 supplies the real
+labeler.
+
+The frozen architecture (`docs/phase22/fix_architecture_v1.2_FROZEN.md` §7.1,
+frozen at docs commit **810240ea**) decided that the backend would **port**
+the tokenisation rather than pin `transformers` below 5.x, and attached a
+blocking exit condition to that decision: **100% label identity against the
+frozen eval venv on all 477 cases, findings and impression scored
+separately.** A pin binds the production dependency graph to one model's
+tokenizer call and fails invisibly at upgrade time; a port has to be proven.
+
+The obligation is real rather than formal. `ml/evaluation/score_chexbert.py`
+produced Phase 20's Tier 3 numbers and diagnosis.md §2c's contradiction
+counts. If the backend's labeler disagreed with it even slightly, the thesis
+would report one set of labels and the deployed safeguard would act on
+another. `score_chexbert.py` is frozen and was not modified or imported.
+
+### Implementation & Validation
+
+**The adapter.** `backend/app/infrastructure/chexbert_labeler.py` implements
+`ISectionLabeler`, returning **raw 4-class indices** (`{0: Blank, 1: Positive,
+2: Negative, 3: Uncertain}`) in the frozen condition order. Checkpoint path,
+device, max length and batch size all come from `Settings`. The 14th head
+("No Finding") keeps its 2-output shape, which is why it can never emit
+Negative and why the contradiction check excludes it.
+
+It does **not** import `score_chexbert.py`, for two reasons: `ml/` and
+`backend/` never import each other (CLAUDE.md's frozen boundary, with
+`shared/` the single deliberate exception), and the frozen script calls
+`BertTokenizer.encode_plus()`, removed in transformers 5.x. The frozen script
+is read as a *specification* and reimplemented, which is precisely what makes
+equivalence something to prove rather than assume.
+
+**The ported tokenisation.** The frozen implementation was
+`tokenize()` → `encode_plus(<token list>)` → manual truncation to
+`ids[:511] + [SEP]`. The port is one call:
+
+```python
+self._tokenizer(text, add_special_tokens=True, truncation=True, max_length=self._max_length)
+```
+
+Three equivalences make these identical, each checked rather than asserted:
+WordPiece-then-specials is the same two steps in one call; empty text yields
+`[CLS, SEP]` on both sides, so the frozen empty branch needs no counterpart;
+and `truncation=True, max_length=512` keeps `[CLS] + 510 content + [SEP]`,
+which is exactly what `ids[:511] + [SEP]` produces.
+
+**Equivalence gate — three layers, all passed.**
+`scratch/phase22_diagnosis/verify_chexbert_equivalence.py`:
+
+```
+frozen side : transformers 4.46.0, torch 2.6.0+cpu
+ported side : transformers 5.13.0, torch 2.5.1+cu121
+cases       : 477   sequences: 954
+
+--- layer 0: condition order (adapter vs frozen export) ---
+  MATCH  all 14 conditions in identical order
+--- layer (a): token identity, 954 sequences ---
+  identical: 954/954
+  MATCH
+--- layer (a2): truncation branch, synthetic over-length input ---
+  raw wordpiece tokens: 2200  ->  frozen rule: 512  ported: 512
+  MATCH  ported truncation reproduces [CLS] + 510 content + [SEP]
+--- layer (b): label identity on CPU ---
+  cells compared: 13356 (477 x 14 x 2)
+  mismatches    : 0
+  MATCH
+--- layer (c): label identity on CUDA (NVIDIA GeForce RTX 4070 Ti SUPER) ---
+  cells compared: 13356 (477 x 14 x 2)
+  mismatches    : 0
+  MATCH
+
+GATE PASSED -- all layers identical to the frozen evaluation.
+```
+
+**26,712 raw label cells compared across two devices, zero mismatches**, plus
+954/954 token sequences and the condition order. No code was adjusted to
+force agreement; the script reports every mismatching cell with its uid,
+section, label, both classes and the logit margin between the top two
+classes, and exits non-zero. It had nothing to report.
+
+**A layer the brief did not ask for, added because the corpus does not reach
+it.** Layer (a) covers 954 real sequences, but the longest is **298 tokens**,
+so the 512-token truncation branch is **never exercised by the corpus**.
+"954/954 identical" would therefore have been read as covering a path it does
+not reach. Layer (a2) constructs a synthetic 2,200-token input and checks the
+frozen truncation rule against the ported one directly. This is recorded in
+the adapter's own docstring as well, so the limit of the evidence travels with
+the code.
+
+**Why TF32 is disabled inside the inference context.** On Ampere and later,
+PyTorch may run fp32 matmuls in TF32, keeping only 10 explicit mantissa bits.
+Harmless for a loss curve — but this labeler's output is an **argmax over 4
+classes**, and a perturbed logit flips the argmax whenever the top two classes
+are nearly tied. One flipped cell fails layer (c). The frozen evaluation ran
+on `torch 2.6.0+cpu`, where TF32 does not exist, so CPU/GPU agreement is only
+expected if the GPU path is held to the same arithmetic. The flags are
+restored on exit rather than set globally, because this process also hosts
+BiomedCLIP, whose precision choices are not this adapter's to change. A unit
+test asserts both the disabling and the restoration.
+
+**Typed failure at construction.** `ChexbertUnavailableError` is raised at
+construction — not at first use — for a missing, unreadable or
+architecture-mismatched checkpoint, with `strict=True` on the state-dict load
+so a partial match fails loudly instead of leaving randomly-initialised heads
+emitting plausible garbage. A unit test asserts the message names both
+`CHEXBERT_CHECKPOINT_PATH` and `checks_run`, because an operator needs to know
+what to set *and* what happens if they do not: the check is omitted, never
+reported as clean, and generation is never blocked.
+
+**Runtime re-measurement with the real adapter.** §7's figures came from a
+hand-rolled harness reusing the frozen model code with a tokenizer shim. These
+come from the adapter itself, with llama3:8b and BiomedCLIP resident:
+
+```
+  quantity                          A2 adapter   section 7       delta
+  CheXbert marginal VRAM (MiB)             452         452           0
+  peak VRAM, all three (MiB)              7095        7125         -30
+  headroom (MiB)                          9281        9251          30
+  latency mean (ms)                        8.2         8.2         0.0
+  latency p50 (ms)                         8.0         9.0        -1.0
+  latency p95 (ms)                        11.1        12.0        -0.9
+
+  headroom now: 9281 MiB (9.06 GiB) -- PASS  (threshold: flag if < 1024 MiB)
+```
+
+Reported, not reconciled, per the brief. Marginal VRAM is identical to the
+byte; peak differs by 30 MiB and the latency percentiles by ~1 ms, all within
+run-to-run variation on a shared desktop GPU. One measurement artifact worth
+recording: the script's "baseline" row read 5542 MiB because llama3:8b was
+still resident from the preceding run under its `keep_alive`, so that run's
+llama delta is not meaningful. The clean llama-only figure remains §7's
+**5025 MiB**, measured from a genuinely cold baseline of 537 MiB.
+
+**Tests.** 25 new, of which 2 are real-checkpoint integration tests that skip
+when the checkpoint is absent. Full suite:
+
+```
+426 passed, 14 warnings in 184.49s (0:03:04)
+```
+
+Collection arithmetic:
+
+```
+$ pytest -q --collect-only                                       -> 426
+$ pytest -q --collect-only --ignore=.../test_chexbert_labeler.py -> 401
+$ pytest -q --collect-only --ignore=.../test_chexbert_labeler.py \
+                           --ignore=.../test_report_consistency_service.py -> 370
+```
+
+370 pre-Phase-22 + 31 (A1) + 25 (A2) = 426, zero failures.
+
+**The integration fixtures come from the frozen side, not from the adapter.**
+`scratch/phase22_diagnosis/frozen_fixture_labels.py` ran two sentences through
+the **frozen venv** to produce the expected classes — `"The heart is
+enlarged."` → Cardiomegaly Positive(1); `"The lungs are clear. There is no
+pleural effusion."` → Pleural Effusion Negative(2), No Finding Positive(1).
+Asserting against the adapter's own output would have been circular. The test
+docstring states plainly that two sentences cannot establish equivalence: they
+catch a checkpoint that failed to load or a head order that was rewired, and
+the real proof is the three-layer gate.
+
+**Scope.** `git diff --stat`: `backend/app/core/config.py` only, 44 insertions
+and 1 deletion — the deletion being a single A1 comment line reworded from
+"the DEFAULT_ block above" to "blocks" — plus two new files. `ml/` is
+untouched, verified by `git diff --stat HEAD -- ml/` returning empty. Nothing
+is wired: no DI provider, no `ReportGenerationService`, no
+`ReportEditService`, no route. The labeler exists and is proven correct; A4
+connects it.
+
+### How to Write This in Your Thesis
+
+> The contradiction check required a clinical-finding labeler at request time,
+> and the labeler used by the offline evaluation could not simply be called
+> from the application: the research and application codebases are kept
+> mutually non-importing by design, and the evaluation code depended on a
+> tokenizer method that had been removed from the library version the
+> application uses. The tokenisation was therefore reimplemented against a
+> version-stable interface rather than pinning the application to an
+> superseded library, on the reasoning that a version pin constrains every
+> future dependency decision and fails at a point far removed from any note
+> explaining it.
+>
+> Reimplementation moves the risk rather than removing it: a labeler that
+> disagreed with the one used for the reported measurements would mean the
+> evaluation and the deployed safeguard were acting on different labels. The
+> port was therefore gated on demonstrated equivalence rather than on review.
+> Three layers were checked against the original implementation running in its
+> original environment — identity of the tokenised sequences for all 954
+> report sections, then identity of the raw four-class labels on CPU, then the
+> same on GPU — giving 26,712 label comparisons across two devices with no
+> disagreement. A fourth check was added after observing that no real report
+> section approached the tokeniser's length limit, so the truncation path was
+> untested by the corpus and was verified separately with a synthetic input;
+> reporting the corpus result alone would have implied coverage of a branch it
+> never reached.
+>
+> One implementation detail proved necessary rather than incidental. Reduced
+> precision matrix multiplication, enabled by default on recent GPUs, perturbs
+> logits slightly. This is inconsequential where a model's output is a
+> continuous score, but this labeler's output is the position of the maximum
+> among four class logits, and a small perturbation changes that position
+> whenever the top two are close. Reduced precision is therefore disabled
+> within the labeler's inference scope and restored on exit, since the same
+> process hosts other models with their own precision requirements. Without
+> it, agreement between the original CPU implementation and the GPU port would
+> have been probable rather than exact, and exactness was the stated condition.
+
+**COMPLETE**

@@ -179,6 +179,44 @@ DEFAULT_IMAGE_MAX_PIXELS = 80_000_000
 #   3 positives + blank negs: 4/6 pass-correct, 4/4 reject-correct
 # This is a probe, not the §11.2 calibration procedure. Rule F4 still
 # applies: do not report these numbers as a calibration result.
+# --- Phase 22 v1.2: CheXbert runtime labeler (frozen doc 3.3, 7) --------
+# The findings/impression contradiction check needs RAW 4-class CheXbert
+# labels per section. Section 7 measured this as feasible on the target
+# hardware (RTX 4070 Ti SUPER, 16376 MiB): with llama3:8b and BiomedCLIP
+# already resident, CheXbert adds 452 MiB and ~9 ms p50 per report, leaving
+# 9.03 GiB headroom.
+#
+# The checkpoint is NOT vendored into the repo -- it is a large file from
+# StanfordAIMI/RRG_scorers, resolved from the local HuggingFace cache. The
+# default below is the path the frozen Phase 20/21 evaluation actually used,
+# so a developer who already ran Tier 3 needs no configuration. A deployment
+# without it gets ChexbertUnavailableError at construction, and Step A4's
+# contract is to omit "contradiction" from checks_run -- never to block
+# generation and never to report the check as clean.
+DEFAULT_CHEXBERT_CHECKPOINT_PATH = (
+    r"C:\Users\user2\.cache\huggingface\hub\models--StanfordAIMI--RRG_scorers"
+    r"\snapshots\6646433b3ad83a10f6e141db76d0ece44312b236\chexbert.pth"
+)
+
+# "auto" resolves to cuda when available, else cpu -- the same convention
+# BiomedCLIPEmbedder already uses, so a deployment configures one mental
+# model rather than two. Pin to "cpu" to reproduce the frozen evaluation's
+# arithmetic exactly (it ran on torch 2.6.0+cpu); the adapter disables TF32
+# on CUDA precisely so that pinning is not required for label equivalence.
+DEFAULT_CHEXBERT_DEVICE = "auto"
+
+# BERT's own positional limit. The frozen tokenize_texts() truncated to
+# [CLS] + 510 content tokens + [SEP]; truncation=True with max_length=512
+# reproduces that exactly. Note that no real Arm C section comes close --
+# the longest of all 954 is 298 tokens -- so this bound is a safety limit,
+# not a value the corpus exercises.
+DEFAULT_CHEXBERT_MAX_LENGTH = 512
+
+# Two texts per report (findings + impression), so the default batch covers
+# several reports at once for offline scoring while remaining a single
+# forward pass for the one-report request path section 7 timed.
+DEFAULT_CHEXBERT_BATCH_SIZE = 16
+
 # --- Phase 22 v1.2: report self-consistency -----------------------------
 # Frozen architecture: docs/phase22/fix_architecture_v1.2_FROZEN.md
 # (frozen at docs commit 810240ea).
@@ -417,7 +455,12 @@ class Settings(BaseSettings):
     RETRIEVAL_FLOOR: float = DEFAULT_RETRIEVAL_FLOOR
     PROJECTION_REJECT_THRESHOLD: float = DEFAULT_PROJECTION_REJECT_THRESHOLD
     DISCLAIMER_AGREEMENT_THRESHOLD: float = DEFAULT_DISCLAIMER_AGREEMENT_THRESHOLD
-    # Phase 22 v1.2 (frozen doc 810240ea) -- see the DEFAULT_ block above
+    # Phase 22 v1.2 (frozen doc 810240ea) -- see the DEFAULT_ blocks above
+    CHEXBERT_CHECKPOINT_PATH: str = DEFAULT_CHEXBERT_CHECKPOINT_PATH
+    CHEXBERT_DEVICE: str = DEFAULT_CHEXBERT_DEVICE
+    CHEXBERT_MAX_LENGTH: int = DEFAULT_CHEXBERT_MAX_LENGTH
+    CHEXBERT_BATCH_SIZE: int = DEFAULT_CHEXBERT_BATCH_SIZE
+
     CONSISTENCY_TEMPORAL_TERMS: str = DEFAULT_CONSISTENCY_TEMPORAL_TERMS
     CONSISTENCY_RETRY_COUNT: int = DEFAULT_CONSISTENCY_RETRY_COUNT
     ACCEPTED_PROJECTIONS: str = DEFAULT_ACCEPTED_PROJECTIONS
