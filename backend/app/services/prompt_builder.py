@@ -64,6 +64,8 @@ only serializes in the given order, never re-sorts.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from app.domain.entities import (
     ClinicalContext,
     ComparisonFacts,
@@ -102,6 +104,19 @@ _SECTION_FIELD_LABELS = {
     EditableReportField.RECOMMENDATION: "Recommendation",
 }
 
+# The human-readable label for each ReportContent field, in
+# REPORT_CONTENT_FIELDS order. Extracted so _report_content_section() can
+# render an arbitrary subset without a second hard-coded list of labels.
+_CONTENT_FIELD_LABELS = {
+    "examination": "Examination",
+    "clinical_history": "Clinical History",
+    "technique": "Technique",
+    "findings": "Findings",
+    "impression": "Impression",
+    "recommendation": "Recommendation",
+    "disclaimer": "Disclaimer",
+}
+
 NO_EVIDENCE_MESSAGE = "No retrieved evidence is available for this case."
 
 _LANGUAGE_INSTRUCTIONS = {
@@ -113,12 +128,37 @@ _LANGUAGE_INSTRUCTIONS = {
 class PromptBuilder:
     """Satisfies domain.interfaces.IPromptBuilder (partially -- see module docstring)."""
 
+    def __init__(self, temporal_terms: Sequence[str] = ()) -> None:
+        """Phase 22 v1.2 frozen §2(iii).
+
+        `temporal_terms` is THE SAME list ReportConsistencyService matches on,
+        injected from `settings.consistency_temporal_terms` by the lifespan.
+        There is deliberately NO second list in this module: a prompt that
+        forbade a different set of words from the one the checker looks for
+        would make the measured temporal rate a statement about two unrelated
+        vocabularies. The single-source property is asserted by
+        test_prompt_heldout_containment.py.
+
+        Defaults to empty so every existing `PromptBuilder()` construction
+        keeps working. With an empty list the no-prior instruction still
+        forbids comparison language, it simply cannot enumerate the terms --
+        a weaker instruction, never a wrong one.
+        """
+        self._temporal_terms = tuple(temporal_terms)
+
     def build_generation_prompt(self, context: ClinicalContext, language: str) -> str:
         sections = [
             self._role_instruction(),
             self._language_instruction(language),
             self._schema_instruction(),
             self._grounding_instruction(),
+            # Phase 22 v1.2 frozen §2(ii) and §2(iii). Placed AFTER the
+            # grounding instruction and BEFORE the evidence block, so the
+            # rules the model must apply to the evidence are stated before it
+            # reads the evidence -- the anti-copying prohibition in §2(i)
+            # heads the evidence block itself, where the text it governs is.
+            self._section_support_instruction(),
+            self._no_prior_study_instruction(),
             self._confidence_instruction(context.voted_labels),
             self._evidence_section(context.evidence_summary),
         ]
@@ -196,16 +236,50 @@ class PromptBuilder:
         return "\n\n".join(sections)
 
     def build_section_regeneration_prompt(
-        self, context: ClinicalContext, language: str, field: EditableReportField
+        self,
+        context: ClinicalContext,
+        language: str,
+        field: EditableReportField,
+        current_findings: str = "",
     ) -> str:
+        """Phase 22 v1.2 frozen §2(iv): `current_findings` is this report's
+        CURRENT findings text (`final_content["findings"]`, including any
+        doctor edits -- the same precedent build_explanation_prompt() set in
+        Phase 17), supplied by ReportEditService.
+
+        It is rendered only when the regenerated field is impression or
+        recommendation, because those are the two that must be supported by
+        findings. Regenerating findings itself needs no copy of findings, and
+        including one would invite the model to echo the text it is meant to
+        replace.
+        """
         field_label = _SECTION_FIELD_LABELS.get(field, field)
+        needs_findings = field in (
+            EditableReportField.IMPRESSION,
+            EditableReportField.RECOMMENDATION,
+        )
         sections = [
             self._section_regeneration_role_instruction(field_label),
             self._language_instruction(language),
             self._grounding_instruction(),
+        ]
+        if needs_findings:
+            # Reuses _report_content_section() -- the same serializer the
+            # explanation and comparison prompts use -- restricted to the one
+            # field, rather than a second serializer being written.
+            sections.append(
+                self._report_content_section(
+                    ReportContent(findings=current_findings),
+                    label="THIS REPORT'S CURRENT FINDINGS",
+                    fields=("findings",),
+                )
+            )
+            sections.append(self._section_support_instruction(authoring_findings=False))
+        sections.append(self._no_prior_study_instruction())
+        sections.extend([
             self._confidence_instruction(context.voted_labels),
             self._evidence_section(context.evidence_summary),
-        ]
+        ])
         # Same conditional-inclusion pattern as build_generation_prompt()
         # (Phase 9 fix) -- only included when there's real content.
         if context.questionnaire_answers:
@@ -224,11 +298,22 @@ class PromptBuilder:
 
     @staticmethod
     def _section_regeneration_role_instruction(field_label: str) -> str:
+        """Phase 22 v1.2 frozen §2(iv) reworded this.
+
+        v1.1 said "You are not revising, reviewing, or restating any other
+        section", which governed CONTEXT as well as output -- it told the
+        model not to consider the rest of the report, which is precisely what
+        it must consider to stay consistent with it. The prohibition now
+        governs OUTPUT only: other sections may be shown, and must not be
+        rewritten or echoed back.
+        """
         return (
             f"You are an AI radiology assistant regenerating ONLY the "
             f'"{field_label}" section of a structured chest X-ray report. '
-            f"You are not revising, reviewing, or restating any other "
-            f"section -- just this one."
+            f"Other sections of the report may be shown to you below for "
+            f"context: use them to stay consistent with what the report "
+            f"already says, but do not rewrite them and do not include them "
+            f"in your output. Output the \"{field_label}\" section only."
         )
 
     @staticmethod
@@ -249,17 +334,24 @@ class PromptBuilder:
         )
 
     @staticmethod
-    def _report_content_section(content: ReportContent, label: str = "REPORT CONTENT") -> str:
-        return (
-            f"{label}:\n"
-            f"Examination: {content.examination}\n"
-            f"Clinical History: {content.clinical_history}\n"
-            f"Technique: {content.technique}\n"
-            f"Findings: {content.findings}\n"
-            f"Impression: {content.impression}\n"
-            f"Recommendation: {content.recommendation}\n"
-            f"Disclaimer: {content.disclaimer}"
+    def _report_content_section(
+        content: ReportContent,
+        label: str = "REPORT CONTENT",
+        fields: Sequence[str] = REPORT_CONTENT_FIELDS,
+    ) -> str:
+        """Phase 22 v1.2 frozen §2(iv) added `fields`, defaulting to all seven
+        so the explanation and comparison prompts this already serves are
+        byte-identical to v1.1 (asserted by
+        test_comparison_grounding_is_byte_identical_to_v1_1).
+
+        Section regeneration passes ("findings",) to render just that one
+        field, which is why this helper is reused rather than a second
+        serializer being written for one field.
+        """
+        rendered = "\n".join(
+            f"{_CONTENT_FIELD_LABELS[name]}: {getattr(content, name)}" for name in fields
         )
+        return f"{label}:\n{rendered}"
 
     @staticmethod
     def _comparison_facts_section(facts: ComparisonFacts) -> str:
@@ -368,6 +460,79 @@ class PromptBuilder:
         )
 
     @staticmethod
+    def _section_support_instruction(authoring_findings: bool = True) -> str:
+        """Phase 22 v1.2 frozen §2(ii).
+
+        The generation prompt already asks for the seven fields in a fixed
+        order with `findings` before `impression`, and generation is
+        autoregressive, so the model's own FINDINGS text is already in
+        context when it writes IMPRESSION (diagnosis.md §5.4). The defect was
+        never that the information was unavailable -- it is that nothing
+        REQUIRED the model to use it, while the one instruction present
+        ("base your report ONLY on the evidence below") pointed at the
+        neighbour block instead. This states the requirement.
+
+        The laterality/location clause is not decoration: the trigger
+        report's RECOMMENDATION mislocated the nodule ("right perihilar" vs
+        FINDINGS' "right upper lung"), which a rule phrased only about
+        presence would not catch, and which no automated check in this phase
+        measures.
+        """
+        opening = (
+            "Author FINDINGS first, describing this patient's radiograph from the "
+            "evidence below.\n"
+            if authoring_findings
+            # Section regeneration is NOT authoring findings -- the report's
+            # findings already exist and are shown above it. Telling the model
+            # to write them first would invite it to emit the wrong section.
+            else "This report's FINDINGS is given above and is not being rewritten.\n"
+        )
+        return (
+            "SECTION SUPPORT INSTRUCTIONS:\n"
+            + opening +
+            "IMPRESSION must be a synthesis of what THIS report's FINDINGS states. "
+            "Do not assert any finding that FINDINGS did not state, and never assert "
+            "a finding that FINDINGS explicitly negated or described as normal.\n"
+            "RECOMMENDATION must follow from IMPRESSION, and must preserve the "
+            "anatomical location and laterality used in FINDINGS. Do not move a "
+            "finding to a different lobe, zone, or side than FINDINGS gave it."
+        )
+
+    def _no_prior_study_instruction(self) -> str:
+        """Phase 22 v1.2 frozen §2(iii).
+
+        v1.2 always emits the NO-PRIOR form: ClinicalContext carries no
+        prior-study state and priors live in ComparisonService, which never
+        generates a report. That is correct for every case in the evaluation
+        harness and every first-visit report, and errs safely -- it can
+        suppress comparison language that would have been legitimate for a
+        patient who does have a prior, but never permits language that is
+        unsupported. Recorded as a limitation in frozen §8.6.
+
+        The enumerated terms are `self._temporal_terms`, the SAME list the
+        consistency checker matches on. See __init__ for why there is no
+        second list here.
+        """
+        lines = [
+            "PRIOR STUDY:",
+            "There is NO prior study for this patient. No earlier examination has "
+            "been provided and none exists to compare against.",
+            "You must NOT use comparison or temporal language of any kind, and must "
+            "not imply that any finding has been seen before.",
+        ]
+        if self._temporal_terms:
+            lines.append(
+                "In particular, do not use these words or phrases: "
+                + ", ".join(self._temporal_terms)
+                + "."
+            )
+        lines.append(
+            "Describe only the current radiograph's appearance, without reference to "
+            "any earlier examination."
+        )
+        return "\n".join(lines)
+
+    @staticmethod
     def _grounding_instruction() -> str:
         return (
             "GROUNDING INSTRUCTIONS:\n"
@@ -406,9 +571,29 @@ class PromptBuilder:
         ):
             return f"EVIDENCE:\n{NO_EVIDENCE_MESSAGE}"
 
-        lines = ["EVIDENCE:"]
+        # Phase 22 v1.2 frozen §2(i). The block previously opened with a bare
+        # "EVIDENCE:" and called these "similar cases", never stating whose
+        # reports they are. The existing grounding instruction forbids only
+        # INVENTION, so verbatim copying satisfied it -- 83 of 353 scorable
+        # Arm C impressions reproduced a neighbour's impression exactly
+        # (diagnosis.md §2a). Copying has to be named as its own prohibited
+        # act, because no amount of anti-hallucination wording reaches it.
+        lines = [
+            "EVIDENCE -- OTHER PATIENTS' REPORTS (reference only):",
+            "The findings and impressions below are taken from OTHER PATIENTS' "
+            "finalised chest X-ray reports, retrieved by image similarity to this "
+            "patient's image. They are NOT this patient's history, and they are NOT "
+            "a description of this patient's radiograph.",
+            "Use them as reference for reporting style and for differential "
+            "reasoning only.",
+            "You must NOT reproduce their sentences or phrasing in your report, and "
+            "you must NOT transfer any specific finding, measurement, laterality, or "
+            "device from them into this report unless it is independently supported "
+            "for THIS patient by the evidence about this patient.",
+            "",
+        ]
 
-        lines.append("Retrieved findings from similar cases (most similar first):")
+        lines.append("Retrieved findings from other patients' reports (most similar first):")
         if evidence_summary.findings_evidence:
             for i, text in enumerate(evidence_summary.findings_evidence, start=1):
                 lines.append(f"{i}. {text}")
@@ -416,7 +601,7 @@ class PromptBuilder:
             lines.append("(none provided)")
 
         lines.append("")
-        lines.append("Retrieved impressions from similar cases (most similar first):")
+        lines.append("Retrieved impressions from other patients' reports (most similar first):")
         if evidence_summary.impressions_evidence:
             for i, text in enumerate(evidence_summary.impressions_evidence, start=1):
                 lines.append(f"{i}. {text}")

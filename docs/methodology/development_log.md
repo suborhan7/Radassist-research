@@ -12998,3 +12998,302 @@ This is the first fully green run of the suite since the flake was
 identified.
 
 **COMPLETE**
+
+---
+
+## Phase 22 Gate A / Step A5 — Prompt Grounding Changes (i)–(iv) — 2026-09-22 — COMPLETE
+
+### Context
+
+A1–A4 built and wired the consistency service, labeler and columns, all
+observational: they measure the defect, they do not change what the model
+writes. A5 is the first step that changes the generated text. It implements
+the four prompt changes the frozen architecture specifies
+(`docs/phase22/fix_architecture_v1.2_FROZEN.md` §2, frozen at docs commit
+**810240ea**), as amended by `amendment_01_consistency_status.md`.
+
+The four address the root causes diagnosed in Step 0: neighbour text rendered
+with no attribution boundary (RC2), impression unconstrained by findings
+(RC1), no prior-study statement and no temporal restriction (RC3), and a
+regeneration prompt that told the model not to look at the rest of its own
+report (RC1 again, in its most literal form).
+
+### Implementation & Validation
+
+**(i) Neighbour evidence attribution.** The block previously opened with a
+bare `EVIDENCE:` and called the neighbours "similar cases", never stating
+whose reports they are. It now opens
+`EVIDENCE -- OTHER PATIENTS' REPORTS (reference only):`, states the text is
+**not this patient's history** and **not a description of this patient's
+radiograph**, and prohibits reproducing their sentences or transferring any
+finding, measurement, laterality or device unless independently supported for
+this patient. All four nouns the frozen document names are asserted
+individually by test, not as a paraphrase of some of them.
+
+This matters because the pre-existing grounding instruction forbids only
+*invention*, so verbatim copying satisfied it — 83 of 353 scorable Arm C
+impressions reproduced a neighbour's impression exactly (diagnosis.md §2a).
+Copying had to be named as its own prohibited act.
+
+**(ii) Impression and recommendation constrained to findings.** A new
+`SECTION SUPPORT INSTRUCTIONS` block: findings authored first; impression a
+synthesis of *this report's* findings, never asserting what findings did not
+state or explicitly negated; recommendation following from impression and
+preserving the anatomical location and laterality findings used.
+
+The laterality clause is not decoration — the trigger report's recommendation
+mislocated the nodule ("right perihilar" vs findings' "right upper lung"), a
+defect no automated check in this phase measures and one a presence-only rule
+would miss.
+
+**(iii) No-prior-study instruction.** States plainly that no prior study
+exists, forbids comparison language, and names the terms. **The term list is
+`settings.consistency_temporal_terms` — the same list the checker matches
+on** — injected through the constructor. There is no second list in
+`prompt_builder.py`, and that is asserted the strong way: a builder
+constructed with sentinel terms (`zzalpha`, `zzbeta`, `zzgamma`) must render
+the sentinels and **none** of the real terms. A hard-coded list would make
+that test fail.
+
+**(iv) Section regeneration.** When regenerating impression or recommendation
+the prompt now carries `final_content["findings"]` — what the report
+currently says, including doctor edits, matching the Phase 17 precedent — and
+applies the (ii) constraint. The role instruction was reworded: v1.1's "You
+are not revising, reviewing, or restating any other section" governed
+*context* as well as output, telling the model not to consider the very text
+it must stay consistent with. It now governs output only.
+
+Two refinements found while implementing, neither in the frozen text:
+
+- The (ii) block opens "Author FINDINGS first" during generation, but that is
+  wrong during regeneration, where findings already exists and is shown
+  above. A regeneration variant emits "This report's FINDINGS is given above
+  and is not being rewritten." Telling the model to write findings first
+  while asking it for an impression invites the wrong section.
+- Findings is **not** included when regenerating findings itself. Handing the
+  model a copy of the text it is meant to replace invites an echo.
+
+`_report_content_section()` was reused rather than a second serialiser
+written, as the frozen document requires; it gained a `fields` parameter
+defaulting to all seven, so the comparison and explanation callers are
+byte-identical.
+
+**Held-out containment.** `docs/phase22/heldout_temporal_terms.txt` is
+**generated from the frozen document, never retyped**
+(`scratch/phase22_diagnosis/extract_heldout.py`), so "matches the frozen
+document exactly" is a property of how it was made. The diff check
+re-extracts and compares:
+
+```
+frozen document : docs\phase22\fix_architecture_v1.2_FROZEN.md
+tracked file    : docs\phase22\heldout_temporal_terms.txt
+terms in frozen : 10
+terms in file   : 10
+
+DIFF: (none) -- the tracked file matches the frozen document exactly
+  MATCH  no change                          \bno (?:significant |appreciable |definite )?change\b
+  MATCH  as before                          \bas before\b
+  MATCH  since the prior                    \bsince the (?:prior|previous|earlier)\b
+  MATCH  similar to previous                \bsimilar to (?:previous|prior|the earlier)\b
+  MATCH  remains / remain                   \bremains?\b|\bremaining\b
+  MATCH  no interval                        \bno interval\b
+  MATCH  continues to                       \bcontinues? to\b
+  MATCH  re-identified / re-demonstration   \bre-?identified\b|\bre-?demonstration\b
+  MATCH  still                              \bstill\b
+  MATCH  residual                           \bresidual\b
+```
+
+The only transformation is unescaping the markdown table's escaped
+alternation pipes, applied identically by both scripts and documented in the
+file's own header.
+
+Containment is asserted over **every prompt the backend can send** —
+generation (en and bn), content retry, explanation, comparison, and section
+regeneration for all five editable fields — using neutral placeholder
+evidence containing no temporal words, so any hit comes from the instruction
+text rather than the fixture. Three supporting tests: the module **fails if
+the held-out file is missing** (a containment test with nothing to check is
+worse than none), the matcher is proven able to fire on planted terms, and a
+new builder method must be added to the enumeration deliberately or the
+coverage test fails.
+
+**Context window, all 477 Arm C cases.** Old and new prompts rendered from
+the same reconstructed context per case — real neighbour uids from
+`per_case_results.csv`, real neighbour text from `master_metadata.csv` — and
+counted with Ollama's own `prompt_eval_count` for `llama3:8b`:
+
+```
+PROMPT TOKEN COUNTS (llama3:8b prompt_eval_count, all completed Arm C cases)
+                   n     min   median     p95     max
+  OLD (v1.1)     477     555      710     921    1236
+  NEW (v1.2)     477     893     1048    1259    1574
+  delta                  338      338     338     338
+
+  configured context size (Arm C evaluation_config.json): 4096
+  configured max output tokens: not set by this system -- Ollama default
+  new max prompt tokens : 1574
+  remaining for output  : 2522
+
+  FITS: all 477 cases are below the 4096-token context, worst case leaving
+        2522 tokens for output.
+```
+
+**The delta is exactly +338 on every one of the 477 cases**, which is the
+expected signature of a fixed instruction block: the added text does not vary
+with the case. The requirement holds with 2,522 tokens of headroom at the
+worst case; nothing was trimmed and the context size was not raised.
+
+(The first attempt at this measurement was killed by the harness with zero
+output and nothing persisted, because Python block-buffers stdout when
+redirected and the CSV was written only at the end. The script is now
+unbuffered and appends each case as it goes, skipping uids already present,
+so an interruption costs at most one case.)
+
+**Structural smoke test**, 10 fixed uids through the real API — a WIRING
+CHECK, NOT A MEASUREMENT:
+
+```
+fixed uids (first 10 completed Arm C cases, uid order): 1, 8, 24, 66, 80, 106, 121, 147, 186, 207
+
+STRUCTURAL VALIDATION: 10/10 reports generated and parsed
+```
+
+All ten returned HTTP 200, meaning the marker format parsed within the
+content-retry budget; a structural failure would have surfaced as HTTP 422
+after the budget was exhausted. All ten report `consistency=partial` with
+zero violations — exactly what amendment 01 predicts before Gate B, since
+the transplant check cannot yet emit a violation and is therefore not counted
+as having run.
+
+**Content-retry attempts per report are NOT observable.** Neither
+`LLMOrchestrator` nor `OllamaClient` logs anything (checked), and the API
+does not expose the count. This is precisely the gap decision **D5** exists
+to close, and precisely why **D3** is blocked
+(`docs/decisions/decision_log.md`). Reported as *not observable*, not as
+zero.
+
+Consistency-check latency from the server's own logs during the smoke run:
+6.9–7.8 ms per report, against ~3.7 s generation.
+
+**The trigger case is not in Arm C.** Searching all 477 generated
+impressions found no case containing "mediastinal shift"; the trigger was a
+live report from the running system, not one of the evaluation cases, so its
+uid cannot be identified. Two documented analogues from diagnosis.md §2c's
+strict-contradiction list were run instead, **selected because they exhibit
+the defect**, labelled as such, n=1 each, and never pooled with the ten:
+
+```
+--- uid=2815 ---
+  BEFORE (v1.1): FINDINGS  ... Heart size is as is within normal limits.
+                 IMPRESSION ... Stable cardiomegaly without overt pulmonary edema.
+  AFTER  (v1.2): FINDINGS  ... Heart size is as is within normal limits.
+                 IMPRESSION The chest X-ray shows [REDACTED] left upper lobe
+                            opacities, likely representing [REDACTED]
+                            subsegmental atelectasis or scarring.
+
+--- uid=2181 ---
+  BEFORE (v1.1): FINDINGS   The cardiac and mediastinal contours are within normal limits.
+                 IMPRESSION Cardiomegaly. Indistinct vascular margination ...
+  AFTER  (v1.2): FINDINGS   The cardiac and mediastinal contours are within normal limits.
+                 IMPRESSION The chest X-ray is normal.
+```
+
+In both, the impression that contradicted its own findings is gone, and
+2815's fabricated "Stable" with it. **This is n=1 per case and proves
+nothing about the rate.** It is reported because the brief asks for the
+qualitative before/after, and because a case that still contradicted itself
+here would have been worth stopping for.
+
+**Tests.** 47 new across two modules (31 grounding, 16 containment), plus one
+added to an existing module. Full suite:
+
+```
+512 passed, 14 warnings in 201.98s (0:03:21)
+
+$ pytest -q --collect-only                                    -> 512
+$ pytest -q --collect-only --ignore=<the two A5 modules>      -> 465
+```
+
+512 = 370 pre-Phase-22 + 4 added to existing files + 91 (A1/A2/A4 modules)
++ 47 (A5 modules).
+
+**Existing test assertions changed — every one, with its reason:**
+
+| test | change | reason |
+|---|---|---|
+| `test_empty_questionnaire_and_notes_produce_byte_identical_prompt` | expected section list gained `_section_support_instruction()` and `_no_prior_study_instruction()` | frozen §2(ii)/(iii) add two sections. The test's subject — that empty questionnaire/notes add nothing — is unchanged, so the expected composition was updated rather than the assertion weakened. |
+| `test_section_regeneration_reuses_evidence_grounding_and_confidence_sections` | `"EVIDENCE:"` → `"EVIDENCE -- OTHER PATIENTS' REPORTS (reference only):"` | frozen §2(i) renamed the header. The test's subject — that the shared serialiser is reused — is unchanged, and is what makes the renamed header appear here at all. |
+| `FakePromptBuilder.build_section_regeneration_prompt` | signature gained `current_findings`, recorded in the call log | frozen §2(iv) changed the Protocol. Recording it enabled a new assertion that the value passed is the report's own text. |
+| `test_regenerate_section_reconstructs_evidence_and_calls_llm_orchestrator` | expected call tuple gained a fourth element `"f"` | same; also pins that the findings passed is the seeded report's own text, not a placeholder. |
+
+**One test expectation of mine was wrong and the code was right.** I first
+asserted the explanation prompt stays byte-identical to v1.1. It does not:
+`build_explanation_prompt()` reuses `_evidence_section()`, so change (i)
+propagates to it. That is correct and desirable — the explanation chat shows
+the clinician the same other-patient text and should carry the same
+attribution boundary. Split into two tests: the report-content block is
+byte-identical (proving the `fields` default is safe), and the evidence block
+deliberately is not.
+
+**Byte-identity where the frozen document requires it**, each asserted
+against tag `v1.1-evaluated` rather than restated from memory:
+`_comparison_grounding_instruction()`, the full comparison prompt,
+`_schema_instruction()` (the marker format), and `_grounding_instruction()`.
+
+**Scope.** `prompt_builder.py` and `report_edit_service.py` as specified, plus
+two files outside the stated list, both necessary consequences reported rather
+than absorbed: `interfaces.py` (the `IPromptBuilder` Protocol signature must
+match the new parameter) and one line of `main.py` (the term list must be
+*passed into* the builder, and the lifespan is the only place that can pass
+it). Untouched and verified: the consistency service, the CheXbert adapter,
+models, migrations, `response_validator.py`, `structural_validator.py`, the
+marker format, and `_comparison_grounding_instruction()`.
+
+**Language coverage, and what is not known.** The four changes are
+language-independent instruction text and are emitted for every language,
+asserted for both `en` and `bn`. **Their effect on Bengali output is
+unmeasured.** The evaluation harness generates English only, all three
+consistency checks are English-only, and no Bengali defect rate has ever been
+measured in this project. A Bengali report receives the new instructions and
+nothing verifies what it does with them.
+
+### How to Write This in Your Thesis
+
+> The generation prompt was revised in four respects, each targeting a
+> specific failure identified in the diagnosis. Retrieved reports from other
+> patients, which had previously been presented under a heading that did not
+> say whose they were, are now explicitly labelled as other patients'
+> records provided for reference, with a prohibition on reproducing their
+> wording or transferring their specific findings. This was necessary
+> because the existing instruction prohibited only invention, and a report
+> copied verbatim from a retrieved neighbour satisfies a prohibition on
+> invention completely. The impression and recommendation sections were
+> constrained to what the report's own findings section states, including a
+> requirement to preserve anatomical location and laterality, since the
+> originating incident involved a recommendation that relocated a finding
+> the findings section had placed elsewhere. An explicit statement that no
+> prior examination exists, with a prohibition on comparison language, was
+> added. Finally, the section-regeneration prompt, which had instructed the
+> model not to consider any other part of the report, now supplies the
+> current findings text when regenerating dependent sections; the
+> instruction against restating other sections was narrowed so that it
+> governs the output rather than what the model may read.
+>
+> Two properties were verified before accepting the change. The vocabulary
+> of temporal terms named in the prompt is the same configured list the
+> automated checker matches on, drawn from a single source; a prompt
+> forbidding one set of words while the measurement counted another would
+> make the reported rate a statement about two unrelated vocabularies. And a
+> separate list of temporal synonyms, reserved for evaluation and never shown
+> to the model, was verified absent from every prompt the system can emit.
+> That list exists to distinguish a model that has stopped making unsupported
+> claims from one that has merely learned to avoid the words it was shown,
+> and a single occurrence in a prompt would destroy its diagnostic value.
+>
+> The revision lengthened every prompt by a constant 338 tokens. Measured
+> across all 477 evaluation cases with the deployed model's own tokeniser,
+> the longest resulting prompt occupied 1,574 of the 4,096-token context,
+> leaving 2,522 tokens for output, so no case required evidence to be
+> trimmed or the context to be enlarged.
+
+**COMPLETE**

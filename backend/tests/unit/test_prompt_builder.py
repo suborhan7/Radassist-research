@@ -186,11 +186,17 @@ def test_empty_questionnaire_and_notes_produce_byte_identical_prompt():
     pb = PromptBuilder()
     actual = pb.build_generation_prompt(ctx, "en")
 
+    # Phase 22 A5: two sections added by frozen §2(ii) and §2(iii). This test's
+    # subject is unchanged -- that an empty questionnaire and empty notes add
+    # NOTHING -- so the expected composition is updated to the real section
+    # list rather than the assertion being weakened.
     expected = "\n\n".join([
         pb._role_instruction(),
         pb._language_instruction("en"),
         pb._schema_instruction(),
         pb._grounding_instruction(),
+        pb._section_support_instruction(),
+        pb._no_prior_study_instruction(),
         pb._confidence_instruction(ctx.voted_labels),
         pb._evidence_section(ctx.evidence_summary),
         "Now generate the report using the field markers above.",
@@ -344,7 +350,12 @@ def test_section_regeneration_reuses_evidence_grounding_and_confidence_sections(
     prompt = PromptBuilder().build_section_regeneration_prompt(ctx, "en", "impression")
     assert "GROUNDING INSTRUCTIONS:" in prompt
     assert "CONFIDENCE / UNCERTAINTY INSTRUCTIONS:" in prompt
-    assert "EVIDENCE:" in prompt
+    # Phase 22 A5: frozen §2(i) renamed the evidence header from the bare
+    # "EVIDENCE:" to one that states whose reports these are. The test's
+    # subject -- that the SHARED evidence serializer is reused rather than a
+    # second copy written -- is unchanged, and is in fact what makes the
+    # renamed header appear here at all.
+    assert "EVIDENCE -- OTHER PATIENTS' REPORTS (reference only):" in prompt
     assert "finding one" in prompt  # real evidence text made it through
     assert "Pneumonia" in prompt  # real voted label made it through
 

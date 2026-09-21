@@ -206,7 +206,17 @@ class ReportEditService:
             clinical_notes=record.clinical_notes or "",
             retrieval_metadata=retrieval_metadata,
         )
-        prompt = self._prompt_builder.build_section_regeneration_prompt(context, record.language, field)
+        # Phase 22 v1.2 frozen §2(iv): the report's CURRENT findings --
+        # final_content, including any doctor edits, matching the
+        # precedent build_explanation_prompt() set in Phase 17. The
+        # builder renders it only for impression/recommendation; passing
+        # it unconditionally keeps that decision in one place.
+        prompt = self._prompt_builder.build_section_regeneration_prompt(
+            context,
+            record.language,
+            field,
+            current_findings=(record.final_content or {}).get("findings") or "",
+        )
         candidate = self._llm_orchestrator.generate_freeform(prompt)
 
         # Phase 22 v1.2 (frozen §3): the candidate is checked BEFORE it is

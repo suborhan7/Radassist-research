@@ -84,8 +84,14 @@ class FakePromptBuilder:
         self.prompt = prompt
         self.build_section_regeneration_prompt_calls = []
 
-    def build_section_regeneration_prompt(self, context, language, field):
-        self.build_section_regeneration_prompt_calls.append((context, language, field))
+    # Phase 22 A5 frozen §2(iv): the builder now receives the report's CURRENT
+    # findings. Recorded in the call log so a test can assert WHICH findings
+    # text was passed -- see
+    # test_regenerate_section_passes_current_final_content_findings.
+    def build_section_regeneration_prompt(self, context, language, field, current_findings=""):
+        self.build_section_regeneration_prompt_calls.append(
+            (context, language, field, current_findings)
+        )
         return self.prompt
 
 
@@ -390,7 +396,13 @@ def test_regenerate_section_reconstructs_evidence_and_calls_llm_orchestrator():
     assert build_call["retrieved"] == [case_a]
     assert build_call["voted_labels"] == voted
 
-    assert fakes["prompt_builder"].build_section_regeneration_prompt_calls == [("THE_CONTEXT", "en", "impression")]
+    # Phase 22 A5 frozen §2(iv): the call now carries a fourth argument, the
+    # report's CURRENT findings from final_content. The seeded report's
+    # findings is "f" (see _seed_report), so this also pins that the value
+    # passed is the report's own text and not a placeholder.
+    assert fakes["prompt_builder"].build_section_regeneration_prompt_calls == [
+        ("THE_CONTEXT", "en", "impression", "f")
+    ]
     assert fakes["llm_orchestrator"].generate_freeform_calls == ["SECTION_REGEN_PROMPT"]
 
     db.close()
@@ -689,3 +701,32 @@ def test_regenerate_section_returns_none_consistency_when_no_checker_is_wired():
     service, _ = _make_regenerate_service(db, {"u1": case_a}, [], context=None)
     outcome = service.regenerate_section(str(report_id), "findings", str(owner_id))
     assert outcome.consistency is None
+
+
+def test_regenerate_section_passes_doctor_edited_findings_not_the_ai_draft():
+    """Phase 22 A5 frozen §2(iv): the builder receives
+    final_content["findings"] -- what the report CURRENTLY says, including
+    the doctor's edits -- not the immutable AI draft. This is the Phase 17
+    precedent build_explanation_prompt() set, applied to regeneration.
+
+    Seeded so the two differ: a test where ai_draft_content and final_content
+    carry the same findings could not tell which one was read.
+    """
+    db = sessionmaker(bind=_make_engine())()
+    owner_id = uuid.uuid4()
+    case_a = RetrievedCase(source_uid="u1", similarity=0.9, findings="fa", impression="ia")
+    session_id = _seed_session(db, owner_id, study_uids=["u1"])
+    report_id = _seed_report(db, session_id, questionnaire_answers={}, clinical_notes="")
+
+    record = db.query(ReportRecord).filter(ReportRecord.id == report_id).one()
+    record.ai_draft_content = {**record.ai_draft_content, "findings": "ORIGINAL AI DRAFT FINDINGS"}
+    record.final_content = {**record.final_content, "findings": "DOCTOR EDITED FINDINGS"}
+    db.commit()
+
+    service, fakes = _make_regenerate_service(db, {"u1": case_a}, [], context=None)
+    service.regenerate_section(str(report_id), "impression", str(owner_id))
+
+    call = fakes["prompt_builder"].build_section_regeneration_prompt_calls[0]
+    passed_findings = call[3]
+    assert passed_findings == "DOCTOR EDITED FINDINGS"
+    assert passed_findings != "ORIGINAL AI DRAFT FINDINGS"

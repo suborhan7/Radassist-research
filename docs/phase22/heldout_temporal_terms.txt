@@ -1,0 +1,32 @@
+# Phase 22 -- HELD-OUT temporal synonym list
+#
+# SOURCE: docs/phase22/fix_architecture_v1.2_FROZEN.md, section 6.4,
+#         "The held-out list -- frozen here, never shown to the model"
+#         (frozen at docs commit 810240ea). Extracted verbatim from that
+#         table by scratch/phase22_diagnosis/extract_heldout.py; never
+#         retyped.
+#
+# THESE TERMS MUST NEVER APPEAR IN ANY PROMPT, IN ANY INSTRUCTION, OR IN THE
+# ReportConsistencyService TERM CONFIGURATION. They are scoring-only.
+#
+# Their purpose: a prompt that names forbidden words can teach a model to
+# avoid THOSE WORDS rather than to stop making unsupported claims. This list
+# is never shown to the model, so a fix that drives the prompt-side list to
+# zero while leaving this list unchanged has produced word-avoidance, not
+# grounding. A term from this list that reaches a prompt burns the list and
+# it must be replaced before the next evaluation.
+#
+# Format: <term name> TAB <regex>, one per line, in the frozen document's
+# own order. The only transformation applied to the frozen text is
+# unescaping the markdown table's escaped alternation pipes ("\|" -> "|");
+# check_heldout.py applies the same rule when it re-extracts and diffs.
+no change	\bno (?:significant |appreciable |definite )?change\b
+as before	\bas before\b
+since the prior	\bsince the (?:prior|previous|earlier)\b
+similar to previous	\bsimilar to (?:previous|prior|the earlier)\b
+remains / remain	\bremains?\b|\bremaining\b
+no interval	\bno interval\b
+continues to	\bcontinues? to\b
+re-identified / re-demonstration	\bre-?identified\b|\bre-?demonstration\b
+still	\bstill\b
+residual	\bresidual\b

@@ -175,7 +175,12 @@ async def lifespan(app: FastAPI):
     # Phase 21 §2.2: the arm comes from configuration, so an evaluation run is
     # a backend restart with an env override, not a different code path.
     app.state.context_builder = ContextBuilder(evidence_mode=settings.EVIDENCE_MODE)
-    prompt_builder = PromptBuilder()
+    # Phase 22 v1.2 frozen §2(iii): the prompt's temporal term list is THE
+    # SAME settings value ReportConsistencyService matches on, read here
+    # once. A prompt that forbade a different set of words from the one
+    # the checker looks for would make the measured temporal rate a
+    # statement about two unrelated vocabularies.
+    prompt_builder = PromptBuilder(temporal_terms=settings.consistency_temporal_terms)
     app.state.prompt_builder = prompt_builder
     app.state.llm_orchestrator = LLMOrchestrator(
         prompt_builder=prompt_builder,

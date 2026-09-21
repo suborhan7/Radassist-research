@@ -120,7 +120,11 @@ class IPromptBuilder(Protocol):
         to prose; it does not perform clinical reasoning of its own."""
         ...
     def build_section_regeneration_prompt(
-        self, context: ClinicalContext, language: str, field: EditableReportField
+        self,
+        context: ClinicalContext,
+        language: str,
+        field: EditableReportField,
+        current_findings: str = "",
     ) -> str:
         """Phase 19: asks for plain replacement text for ONE editable
         section only (never a 7-field JSON object) -- a genuinely separate
@@ -130,7 +134,14 @@ class IPromptBuilder(Protocol):
         questionnaire/clinical-notes/grounding building blocks
         build_generation_prompt() already established -- see
         prompt_builder.py's own docstring for exactly which helpers are
-        shared vs. new."""
+        shared vs. new.
+
+        Phase 22 v1.2 frozen §2(iv) added `current_findings`: this report's
+        CURRENT findings text (final_content, including any doctor edits),
+        rendered only when the regenerated field is impression or
+        recommendation, which are the two that must be supported by
+        findings. Defaulted to "" so a caller that has no findings to supply
+        -- or is regenerating findings itself -- needs no change."""
         ...
 
 
