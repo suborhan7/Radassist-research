@@ -31,7 +31,9 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_doctor, get_db
+from app.api.consistency_status import build_consistency_response
 from app.api.schemas import (
+    ConsistencyResponse,
     FormattedReportResponse,
     GenerateReportResponse,
     GenerationMetadataResponse,
@@ -58,6 +60,7 @@ def _build_response(
     formatted_report: FormattedReport,
     validation: SemanticValidationResult,
     generation_metadata: GenerationMetadata,
+    consistency: ConsistencyResponse,
 ) -> GenerateReportResponse:
     return GenerateReportResponse(
         report_id=str(report_id),
@@ -77,6 +80,7 @@ def _build_response(
             section_headers=formatted_report.section_headers,
         ),
         validation=ValidationResponse(is_clean=validation.is_clean, warnings=list(validation.warnings)),
+        consistency=consistency,
         generation_metadata=GenerationMetadataResponse(
             llm_model=generation_metadata.llm_model,
             llm_temperature=generation_metadata.llm_temperature,
@@ -108,10 +112,14 @@ def generate_report(
         # instance-held value that decided the category returned at
         # retrieval time.
         modality_gate_service=request.app.state.modality_gate_service,
+        # Phase 22 v1.2 (frozen §3). The SAME singleton built once in
+        # lifespan, so every report in a process is judged by one term list
+        # and one labeler instance.
+        consistency_service=getattr(request.app.state, "consistency_service", None),
     )
 
     try:
-        report_id, formatted_report, validation, generation_metadata = service.generate(
+        report_id, formatted_report, validation, generation_metadata, consistency_snapshot = service.generate(
             request_body.session_id,
             request_body.language,
             questionnaire_answers=request_body.questionnaire_answers,
@@ -131,4 +139,11 @@ def generate_report(
             },
         ) from exc
 
-    return _build_response(report_id, request_body.session_id, formatted_report, validation, generation_metadata)
+    return _build_response(
+        report_id,
+        request_body.session_id,
+        formatted_report,
+        validation,
+        generation_metadata,
+        build_consistency_response(*consistency_snapshot),
+    )

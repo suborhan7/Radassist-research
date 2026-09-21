@@ -42,14 +42,22 @@ set.
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.domain.entities import EditableReportField, ReportStatus, RetrievalMetadata
+from app.domain.entities import (
+    ConsistencyResult,
+    EditableReportField,
+    ReportContent,
+    ReportStatus,
+    RetrievalMetadata,
+)
 from app.domain.interfaces import (
+    IReportConsistencyChecker,
     IContextBuilder,
     ILabelVoter,
     ILLMOrchestrator,
@@ -67,7 +75,10 @@ from app.services.exceptions import (
     ReportNotFoundError,
     ReportValidationError,
 )
+from app.services.report_generation_service import HAS_PRIOR_STUDY_V1_2
 from app.services.session_reconstruction import reconstruct_session_evidence
+
+logger = logging.getLogger(__name__)
 
 
 def _load_report_and_owner(db: Session, report_id: str) -> tuple[ReportRecord, uuid.UUID | None]:
@@ -100,6 +111,7 @@ class ReportEditService:
         context_builder: IContextBuilder | None = None,
         llm_orchestrator: ILLMOrchestrator | None = None,
         prompt_builder: IPromptBuilder | None = None,
+        consistency_service: IReportConsistencyChecker | None = None,
     ) -> None:
         self._db = db
         self._vector_store = vector_store
@@ -107,6 +119,11 @@ class ReportEditService:
         self._context_builder = context_builder
         self._llm_orchestrator = llm_orchestrator
         self._prompt_builder = prompt_builder
+        # Phase 22 v1.2 (frozen §3). Optional and last, so every existing
+        # construction of this service keeps working unchanged. None means
+        # the candidate is returned with no consistency result, never with a
+        # fabricated clean one.
+        self._consistency_service = consistency_service
 
     def update_content(self, report_id: str, current_doctor_id: str, updates: dict[str, str]) -> ReportRecord:
         record, owner_doctor_id = _load_report_and_owner(self._db, report_id)
@@ -132,8 +149,8 @@ class ReportEditService:
 
     def regenerate_section(
         self, report_id: str, field: EditableReportField, current_doctor_id: str
-    ) -> tuple[str, bool]:
-        """Returns (candidate, context_incomplete). No DB write -- Decision
+    ) -> tuple[str, bool, ConsistencyResult | None]:
+        """Returns (candidate, context_incomplete, consistency). No DB write -- Decision
         1: nothing is persisted until the doctor accepts the candidate via
         the existing update_content() (PATCH /reports/{id}), same as any
         other edit. `field` is trusted to already be one of
@@ -190,7 +207,69 @@ class ReportEditService:
         )
         prompt = self._prompt_builder.build_section_regeneration_prompt(context, record.language, field)
         candidate = self._llm_orchestrator.generate_freeform(prompt)
-        return candidate, context_incomplete
+
+        # Phase 22 v1.2 (frozen §3): the candidate is checked BEFORE it is
+        # returned, so the doctor sees a consistency verdict on the text they
+        # are actually being offered.
+        #
+        # NOT persisted to the report's consistency_* columns. Those describe
+        # the generation-time AI draft (frozen §5), and this candidate is not
+        # written anywhere until the doctor accepts it through the ordinary
+        # PATCH /reports/{id} path -- the same Decision 1 that keeps
+        # regenerate_section() free of DB writes altogether.
+        consistency = self._run_candidate_consistency_check(
+            record, field, candidate, context, retrieved_cases
+        )
+        return candidate, context_incomplete, consistency
+
+    def _run_candidate_consistency_check(
+        self, record, field, candidate, context, retrieved_cases
+    ) -> ConsistencyResult | None:
+        """Check the candidate IN CONTEXT, not in isolation.
+
+        The candidate is one section's prose, but two of the three checks are
+        only meaningful against the rest of the report: the contradiction
+        check compares findings with impression, and the transplant check is
+        defined on the impression. So the report's CURRENT content is loaded
+        and the regenerated field substituted into it, and that combined
+        content is what gets checked.
+
+        Reading `final_content` rather than `ai_draft_content` follows the
+        precedent Phase 17 set for build_explanation_prompt(): a doctor
+        reviewing a candidate is comparing it against what the report says
+        NOW, including their own edits, not against the original draft.
+
+        Returns None -- never a fabricated clean result -- when no checker is
+        wired or the check raises. Regeneration must not fail because of it,
+        for the same reason generation must not (see
+        ReportGenerationService._run_consistency_check).
+        """
+        if self._consistency_service is None:
+            return None
+
+        try:
+            current = dict(record.final_content or {})
+            current[field.value if hasattr(field, "value") else str(field)] = candidate
+            content = ReportContent(
+                examination=current.get("examination", "") or "",
+                clinical_history=current.get("clinical_history", "") or "",
+                technique=current.get("technique", "") or "",
+                findings=current.get("findings", "") or "",
+                impression=current.get("impression", "") or "",
+                recommendation=current.get("recommendation", "") or "",
+                disclaimer=current.get("disclaimer", "") or "",
+            )
+            return self._consistency_service.check(
+                content, context, retrieved_cases, record.language, HAS_PRIOR_STUDY_V1_2
+            )
+        except Exception:
+            logger.exception(
+                "consistency check failed for regenerated section %s of report %s; "
+                "the candidate is still returned, with no consistency result",
+                field,
+                record.id,
+            )
+            return None
 
     def finalize(self, report_id: str, current_doctor_id: str) -> ReportRecord:
         record, owner_doctor_id = _load_report_and_owner(self._db, report_id)

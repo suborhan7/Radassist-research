@@ -208,7 +208,7 @@ def test_correct_sequencing_and_data_flow():
         db, {"u1": case_a, "u2": case_b}, voted, context, llm_content=CONTENT,
     )
 
-    report_id, formatted_report, validation_result, generation_metadata = service.generate(str(session_id), "en")
+    report_id, formatted_report, validation_result, generation_metadata, _consistency = service.generate(str(session_id), "en")
 
     # 1-2-3: fetch + study_uids extraction + get_by_ids, in rank order
     assert fakes["vector_store"].get_by_ids_calls == [["u1", "u2"]]
@@ -426,10 +426,10 @@ def test_no_questionnaire_data_produces_byte_identical_behavior_to_phase_8():
     service, fakes = _make_service(db, {"u1": case_a}, voted, context, llm_content=CONTENT)
 
     # call 1: new params OMITTED entirely
-    report_id_1, formatted_report_1, validation_1, generation_metadata_1 = service.generate(str(session_id), "en")
+    report_id_1, formatted_report_1, validation_1, generation_metadata_1, _c1 = service.generate(str(session_id), "en")
 
     # call 2: new params EXPLICITLY passed as empty
-    report_id_2, formatted_report_2, validation_2, generation_metadata_2 = service.generate(
+    report_id_2, formatted_report_2, validation_2, generation_metadata_2, _c2 = service.generate(
         str(session_id), "en", questionnaire_answers={}, clinical_notes="",
     )
 
@@ -467,7 +467,7 @@ def test_questionnaire_answers_and_notes_reach_context_builder_when_provided():
 
     answers = {"duration": "3 days", "fever": "yes"}
     notes = "Patient reports recent travel"
-    report_id, _, _, _ = service.generate(
+    report_id, _, _, _, _ = service.generate(
         str(session_id), "en", questionnaire_answers=answers, clinical_notes=notes
     )
 
@@ -505,7 +505,7 @@ def test_questionnaire_answers_and_clinical_notes_are_never_null_for_one_but_not
     service, fakes = _make_service(db, {"u1": case_a}, voted, context, llm_content=CONTENT)
 
     # Both entirely omitted -- the "nothing provided" path.
-    report_id, _, _, _ = service.generate(str(session_id), "en")
+    report_id, _, _, _, _ = service.generate(str(session_id), "en")
     record = db.query(ReportRecord).filter(ReportRecord.id == report_id).one()
     assert record.questionnaire_answers is not None
     assert record.clinical_notes is not None
@@ -540,7 +540,7 @@ def test_generate_normalizes_clinical_notes_even_if_a_caller_passes_none_directl
     service, fakes = _make_service(db, {"u1": case_a}, voted, context, llm_content=CONTENT)
 
     answers = {"duration": "3 days"}
-    report_id, _, _, _ = service.generate(
+    report_id, _, _, _, _ = service.generate(
         str(session_id), "en", questionnaire_answers=answers, clinical_notes=None,  # type: ignore[arg-type]
     )
 

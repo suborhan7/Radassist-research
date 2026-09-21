@@ -31,6 +31,8 @@ necessarily what actually produced that session's retrieved cases.
 """
 from __future__ import annotations
 
+import logging
+import time
 import uuid
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -49,6 +51,7 @@ from app.domain.interfaces import (
     IContextBuilder,
     ILabelVoter,
     ILLMOrchestrator,
+    IReportConsistencyChecker,
     IReportFormatter,
     IResponseValidator,
     IVectorStore,
@@ -57,6 +60,23 @@ from app.models.report import ReportRecord
 from app.models.retrieved_evidence import RetrievedEvidence
 from app.services.evidence_disclaimer import render_disclaimer
 from app.services.session_reconstruction import reconstruct_session_evidence
+
+logger = logging.getLogger(__name__)
+
+# Frozen architecture §2(iii), the v1.2 scope decision, stated ONCE here and
+# imported by every caller that needs it rather than written as a bare False
+# at each call site.
+#
+# v1.2 does NOT plumb real prior-study state into generation. ClinicalContext
+# has no such field and priors live in ComparisonService, which never
+# generates a report (frozen §3.5). So the generation path always reports "no
+# prior study", which is correct for 100% of evaluation-harness cases and for
+# every first-visit report, and which errs in the safe direction: it can
+# suppress comparison language that would have been legitimate for a patient
+# who DOES have a prior, but it can never permit language that is
+# unsupported. Recorded as a known limitation in frozen §8.6, deferred to
+# future work in frozen §9.
+HAS_PRIOR_STUDY_V1_2 = False
 
 
 class ReportGenerationService:
@@ -70,6 +90,7 @@ class ReportGenerationService:
         response_validator: IResponseValidator,
         report_formatter: IReportFormatter,
         modality_gate_service=None,
+        consistency_service: IReportConsistencyChecker | None = None,
     ) -> None:
         self._db = db
         self._vector_store = vector_store
@@ -92,6 +113,19 @@ class ReportGenerationService:
         # "no recorded support state" that pre-migration rows carry, not a
         # silent fallback to some assumed category.
         self._modality_gate_service = modality_gate_service
+        # Phase 22 v1.2 (frozen §3). Defaulted to None for the same reason
+        # modality_gate_service is: the existing unit tests construct this
+        # service with seven positional collaborators and must keep working
+        # unchanged. A None checker means the check simply does not run and
+        # all three consistency columns stay NULL -- the same honest "no
+        # recorded state" a pre-v1.2 row carries, never a silent clean
+        # verdict.
+        #
+        # GATE A IS OBSERVATIONAL. This service calls check() and persists
+        # the result. It does NOT act on it: there is no retry, nothing is
+        # blocked, and no generated text is altered by it. The retry is
+        # Gate C (frozen §4).
+        self._consistency_service = consistency_service
 
     def generate(
         self,
@@ -99,7 +133,13 @@ class ReportGenerationService:
         language: str,
         questionnaire_answers: dict[str, str] | None = None,
         clinical_notes: str = "",
-    ) -> tuple[uuid.UUID, FormattedReport, SemanticValidationResult, GenerationMetadata]:
+    ) -> tuple[
+        uuid.UUID,
+        FormattedReport,
+        SemanticValidationResult,
+        GenerationMetadata,
+        tuple[list | None, list | None, int | None],
+    ]:
         # Phase 9 additive extension: questionnaire_answers/clinical_notes
         # default to None/"" (same null-handling convention as
         # PromptBuilder's own build() defaults from Phase 6 --
@@ -145,6 +185,26 @@ class ReportGenerationService:
 
         validation_result = self._response_validator.validate_semantic(
             content, context.evidence_summary, voted_labels
+        )
+
+        # --- Phase 22 v1.2 (frozen §3): report self-consistency. ---
+        #
+        # Placed exactly here, AFTER validate_semantic() and BEFORE
+        # render_disclaimer(), per the frozen §3 pipeline diagram. After the
+        # validator so that validator's subject stays "the model's clinical
+        # claims against retrieved evidence" and it is never handed
+        # post-processed text; before the disclaimer so the disclaimer is
+        # rendered from the same content the check just judged.
+        #
+        # The report id is generated up front rather than left to
+        # ReportRecord's uuid4 default, purely so a check that raises can be
+        # logged against the report it belongs to -- otherwise the only
+        # identifier available at this point is the session.
+        report_id = uuid.uuid4()
+        consistency_violations, consistency_checks_run, consistency_retry_count = (
+            self._run_consistency_check(
+                report_id, content, context, retrieved_cases, language
+            )
         )
 
         # --- Input Admission and Modality Gate §7: the evidence support
@@ -220,6 +280,7 @@ class ReportGenerationService:
         # writes either column, so the two can never independently drift
         # to one-null-one-not.
         report_record = ReportRecord(
+            id=report_id,
             session_id=retrieval_session.id,
             language=language,
             status=ReportStatus.AI_DRAFT,
@@ -253,6 +314,12 @@ class ReportGenerationService:
             # migration's docstring).
             voted_labels=[asdict(v) for v in voted_labels],
             agreement=top_agreement,
+            # Phase 22 v1.2 (frozen §5). NULL and [] are different states and
+            # the three values above were built to preserve that -- see
+            # _run_consistency_check() for which case writes which.
+            consistency_violations=consistency_violations,
+            consistency_checks_run=consistency_checks_run,
+            consistency_retry_count=consistency_retry_count,
         )
         self._db.add(report_record)
         try:
@@ -278,7 +345,104 @@ class ReportGenerationService:
         # service layer works in real uuid.UUID objects, and only the API
         # layer (Step 7) converts to str for JSON serialization, same as
         # app/api/retrieval.py's _build_response() does for session_id.
-        return report_record.id, formatted_report, validation_result, generation_metadata
+        # Phase 22 v1.2: the three values EXACTLY AS PERSISTED are returned as
+        # a fifth element, rather than the ConsistencyResult they were built
+        # from. The route derives the response status from these, so what a
+        # caller sees on POST /generate-report is derived from the same values
+        # GET /reports/{id} will later read out of the row -- the two cannot
+        # describe the same report differently. Returning them also avoids a
+        # redundant re-read of the row that was just written.
+        return (
+            report_record.id,
+            formatted_report,
+            validation_result,
+            generation_metadata,
+            (consistency_violations, consistency_checks_run, consistency_retry_count),
+        )
+
+    def _run_consistency_check(self, report_id, content, context, retrieved_cases, language):
+        """Returns (violations, checks_run, retry_count) ready to persist.
+
+        GENERATION MUST NEVER FAIL BECAUSE OF THE CHECKER. Everything below
+        is subordinate to that: this method has no raising path, and its
+        worst case is three NULLs and a log line. A self-consistency warning
+        is a safety improvement, and a safety improvement that can take down
+        report generation is a net loss -- the doctor loses the report
+        entirely instead of receiving one with an unchecked caveat.
+
+        The three cases, per the frozen §5 NULL-vs-[] distinction:
+
+          checks ran (English)   -> ([...], [...], 0)
+              A real list, possibly empty. An empty list here means the
+              checks ran and found nothing, and checks_run names which ones
+              earned that.
+
+          zero checks (non-English) -> (None, [], 0)
+              Deliberately asymmetric, and specified this way in the step
+              brief: checks_run == [] is a positive statement ("we know zero
+              checks were applicable"), while violations == NULL is the
+              absence of a violation record. Writing violations == [] here
+              would assert the report was examined and found clean, which is
+              exactly the false assurance frozen §3.4/§8.8 forbids for
+              Bengali reports.
+
+          checker raised         -> (None, None, None)
+              All three NULL: nothing is known, and nothing is claimed. The
+              exception is logged with the report id.
+
+        retry_count is 0 whenever the checker ran at all. Gate A performs no
+        retry, so 0 is a fact about this run, not a placeholder.
+        """
+        if self._consistency_service is None:
+            # No checker wired: same honest "no recorded state" as a
+            # pre-v1.2 row. Not logged as an error -- running without the
+            # checker is a supported configuration in Gate A.
+            return None, None, None
+
+        started = time.perf_counter()
+        try:
+            result = self._consistency_service.check(
+                content,
+                context,
+                retrieved_cases,
+                language,
+                # Frozen §2(iii): see HAS_PRIOR_STUDY_V1_2's own comment.
+                HAS_PRIOR_STUDY_V1_2,
+            )
+        except Exception:
+            # Deliberately broad. The checker calls into a neural labeler and
+            # regex matching over model-authored text; enumerating every
+            # failure it could have is not possible, and any one of them
+            # taking down generation would be worse than not checking.
+            logger.exception(
+                "consistency check failed for report %s; report is still generated "
+                "and persisted, and all three consistency columns stay NULL",
+                report_id,
+            )
+            return None, None, None
+
+        # Logged per request so the check's real cost is observable in a
+        # running system, not only in a benchmark. INFO because it is one
+        # short line per report, and because the whole point of Gate A is
+        # that this path can be watched while it changes nothing.
+        logger.info(
+            "consistency check for report %s: %.1f ms, language=%s, checks_run=%s, violations=%d",
+            report_id,
+            (time.perf_counter() - started) * 1000.0,
+            language,
+            list(result.checks_run),
+            len(result.violations),
+        )
+
+        if not result.checks_run:
+            # Non-English: zero checks were applicable.
+            return None, list(result.checks_run), result.retry_count
+
+        return (
+            [asdict(v) for v in result.violations],
+            list(result.checks_run),
+            result.retry_count,
+        )
 
     def _top1_similarity(self, session_id: uuid.UUID) -> float | None:
         """The rank-1 similarity actually measured by the original

@@ -12421,3 +12421,265 @@ untracked, so no database binary enters the commit.
 > diverged.
 
 **COMPLETE**
+
+---
+
+## Phase 22 Gate A / Step A4 — Wiring ReportConsistencyService in Observational Mode — 2026-09-21 — COMPLETE
+
+### Context
+
+A1 built `ReportConsistencyService`, A2 the CheXbert labeler, A3 the three
+persistence columns — all unwired. A4 connects them, per the frozen
+architecture §3–§5 (`docs/phase22/fix_architecture_v1.2_FROZEN.md`, frozen at
+docs commit **810240ea**).
+
+**Observational, not active.** The service runs, its result is persisted and
+served, and it changes nothing a doctor reads. No retry exists (that is Gate
+C), no generation is blocked, no text is altered. That is a claim which can be
+tested directly rather than argued, and this step's key test does exactly
+that.
+
+### Implementation & Validation
+
+**Lifespan.** The labeler is constructed once at startup, beside BiomedCLIP
+and the modality gate, with every value read off `settings` at that one point.
+A `ChexbertUnavailableError` is caught and logged at **warning**, and
+`ReportConsistencyService` is then built with `labeler=None` — startup never
+fails because of the labeler. Refusing to boot would take out report
+generation entirely to protect a warning; dropping one check and recording
+that it did not run is the proportionate response. Transplant thresholds are
+deliberately not passed: they are Gate B's to calibrate (frozen §3.2).
+
+Confirmed on the real server:
+
+```
+INFO [app.main] lifespan startup: loading ChexbertLabeler (should log exactly once per app lifetime)
+INFO [app.main] lifespan startup complete
+```
+
+**Placement.** `check()` runs after `validate_semantic()` and before
+`render_disclaimer()`, exactly as frozen §3 shows — after the validator so its
+subject stays the model's claims against retrieved evidence, before the
+disclaimer so the disclaimer is rendered from the content just judged.
+
+**Persistence**, the three cases, all verified live:
+
+| case | violations | checks_run | retry_count | status |
+|---|---|---|---|---|
+| English, checks ran | `[...]` (possibly `[]`) | `[...]` | `0` | clean / violations |
+| Non-English | **NULL** | `[]` | `0` | not_run |
+| `check()` raised | NULL | NULL | NULL | not_run |
+
+The non-English asymmetry is deliberate and is the point of the whole schema:
+`checks_run == []` is a positive statement ("we know zero checks were
+applicable"), while `violations == NULL` is the absence of a violation record.
+Writing `violations == []` there would assert the report was examined and
+found clean — the exact false assurance frozen §3.4/§8.8 forbids.
+
+**THE KEY TEST — observational identity.** The same fake LLM output is
+generated twice, once with a real consistency service injected (which *does*
+find a temporal violation in that content) and once with none, then the
+persisted content and formatted report are compared byte for byte:
+`final_content`, `ai_draft_content`, `formatted.content`, `section_headers`,
+`language`, `validation_warnings`, `status`, `llm_model`, `llm_temperature`,
+the `SemanticValidationResult` and the `GenerationMetadata` — all identical.
+The **only** difference is the consistency snapshot itself. A second test
+asserts the disclaimer specifically, since it is rendered after the check.
+
+If that test ever fails, the checker has stopped being observational and
+Phase 21's numbers could no longer be attributed to the tagged v1.1 system.
+
+**Status derivation lives in exactly one place.** `grep` over `backend/app`:
+
+```
+$ grep -rn "derive_consistency_status\|build_consistency_response" backend/app --include=*.py
+  app/api/consistency_status.py:39:  def derive_consistency_status(...)
+  app/api/consistency_status.py:67:  def build_consistency_response(...)
+  app/api/consistency_status.py:84:      status=derive_consistency_status(checks_run, violations),
+  app/api/generation.py:148:          build_consistency_response(*consistency_snapshot)
+  app/api/reports.py:167:            consistency=build_consistency_response(...)
+  app/api/reports.py:385:            consistency=build_consistency_response(*snapshot)
+```
+
+Three call sites, one derivation. A literal `"not_run"` initially survived in
+the schema default factory; it now imports `STATUS_NOT_RUN` from that module,
+so the only remaining occurrences outside it are docstring prose. The
+derivation's branch order is its safety property: `not_run` is decided
+**first**, so no input combination can reach `clean` without a non-empty
+`checks_run`. A test asserts that directly.
+
+**Live smoke test** (real API on `dev.db`, real Ollama `llama3:8b`, real
+ChromaDB, real CheXbert; **n=2, a wiring check, not a measurement**):
+
+```
+=== POST /generate-report  language=en  (4.6s wall) ===
+  consistency: {"status": "clean", "checks_run": ["temporal", "transplant", "contradiction"],
+                "violations": [], "retry_count": 0}
+
+=== POST /generate-report  language=bn  (11.3s wall) ===
+  consistency: {"status": "not_run", "checks_run": [], "violations": [], "retry_count": 0}
+
+=== persisted columns, read straight from dev.db ===
+  [en]  consistency_violations  = []
+        consistency_checks_run  = ["temporal", "transplant", "contradiction"]
+        consistency_retry_count = 0
+  [bn]  consistency_violations  = NULL
+        consistency_checks_run  = []
+        consistency_retry_count = 0
+
+=== GET /reports/{id} (served from the stored columns) ===
+  [en] {"status": "clean", ...}
+  [bn] {"status": "not_run", ...}
+```
+
+`check()` latency from the server's own logs:
+
+```
+consistency check for report 088b7eab-...: 13.7 ms, language=en, checks_run=['temporal','transplant','contradiction'], violations=0
+consistency check for report aa38d77b-...:  0.0 ms, language=bn, checks_run=[], violations=0
+```
+
+n=2, stated as a smoke observation only. 13.7 ms against a 4.6 s generation is
+~0.3% of request latency. Zero `consistency check failed` lines.
+
+**The Bengali smoke report is itself the §8.8 finding, caught live.** Its
+impression reads *"স্টেবল কার্ডিওমেগালি উইথ স্টেবল সেকোয়া প্রিয়ার
+গ্রানুলোম্যাটিক ডিজিজ"* — "**Stable** cardiomegaly with **stable** sequelae
+**prior** granulomatous disease", the English clinical vocabulary
+transliterated into Bengali script. So this report contains exactly the
+fabricated temporal language the temporal check exists to catch, for a patient
+with no prior study, and the check cannot see it because the term list is
+English word-boundary regex. The system records this honestly as `not_run`
+rather than clean — which is the mechanism working as designed — but the
+underlying defect is live, unmitigated, and now demonstrated rather than
+predicted. This strengthens the case for the §9 open item on Bengali coverage.
+
+**Tests.** 28 new in `test_consistency_wiring.py`, 3 added to
+`test_report_edit_service.py`. Full suite:
+
+```
+457 passed, 14 warnings in 256.78s (0:04:16)
+
+$ pytest -q --collect-only                                          -> 457
+$ pytest -q --collect-only --ignore=.../test_consistency_wiring.py  -> 429
+$ pytest -q --collect-only --ignore=.../test_consistency_wiring.py \
+    --ignore=.../test_chexbert_labeler.py \
+    --ignore=.../test_report_consistency_service.py                 -> 373
+```
+
+373 = 370 pre-Phase-22 + the 3 regeneration tests added to an existing file;
+373 + 28 + 25 (A2) + 31 (A1) = 457, zero failures.
+
+**A pre-existing flaky test, found and characterised but NOT fixed here.** The
+first full-suite run failed on
+`test_auth_infrastructure.py::test_jwt_verify_rejects_tampered_token`, which
+is unrelated to anything in A4. Investigation: the test tampers a token by
+flipping the final character of the signature to `"A"`. An HS256 signature is
+32 bytes → 43 base64url characters, and that 43rd character carries only 4
+significant bits plus 2 padding bits that decoding discards, so flipping it to
+`"A"` leaves the decoded 32 bytes **unchanged** whenever the original
+character's top four bits are already zero. The token then still verifies and
+`pytest.raises` sees nothing.
+
+Measured across 5,000 genuinely distinct signatures: **268/5000 = 5.36%**, and
+the test failed **2/40** isolated runs — the same rate. (An earlier probe
+reported 0/2000 and was wrong: it reissued within a single second, so the
+`exp` claim was identical and it tested one token 2,000 times rather than
+2,000 tokens.) It passes 15/15 on clean `HEAD` and 10/10 with A4 applied,
+which is exactly what a ~5% intermittent looks like.
+
+This is a genuine defect in the test, present since Phase 13, not introduced
+by A4. It is **not fixed in this commit**, because an unrelated repair inside
+a wiring commit would muddy both. Flagged for a separate change.
+
+**Scope.** 507 insertions, 21 deletions across nine files, plus two new files.
+Verified untouched by `git diff --stat HEAD --`: `prompt_builder.py`,
+`response_validator.py`, `report_consistency_service.py`,
+`chexbert_labeler.py`, all of `app/models/`, all of `alembic/`.
+
+### Decisions made in A4 — NEED RATIFICATION
+
+The frozen document is silent on each of these. None contradicts it; all are
+recorded here rather than absorbed silently.
+
+1. **`ReportDetail` and `ReportDetailService` were modified.** Not in the
+   step's scope list, but `GET /reports/{id}` cannot serve the consistency
+   block without the columns flowing through the detail entity. Three
+   nullable fields added, read straight off the record, mirroring
+   `retrieval_support`/`top1_similarity` exactly. Purely additive.
+
+2. **`generate()` now returns a 5-tuple**, the fifth element being the three
+   persisted values. The alternative was re-reading the row just written.
+   Returning them guarantees `POST /generate-report` and `GET /reports/{id}`
+   derive their status from the same values. Four existing test unpack sites
+   updated mechanically.
+
+3. **`regenerate_section()` now returns a 3-tuple** `(candidate,
+   context_incomplete, consistency)`. Required by frozen §3 ("check() is
+   called on the candidate before it is returned"). Five existing test unpack
+   sites updated mechanically.
+
+4. **The regeneration check runs on the candidate IN CONTEXT.** The candidate
+   is one section, but contradiction compares findings against impression and
+   transplant is defined on the impression, so the report's current
+   `final_content` is loaded and the regenerated field substituted before
+   checking. Checking the section in isolation would make two of three checks
+   meaningless. `final_content` rather than `ai_draft_content` follows the
+   Phase 17 precedent for `build_explanation_prompt()`.
+
+5. **Partial checks still report status `"clean"`.** With no labeler, two of
+   three checks run; if they find nothing, step 4's rule yields `"clean"`.
+   **This overstates assurance**: the contradiction check never ran. The
+   information is not lost — `checks_run` lists exactly which checks earned
+   the verdict and the API serves it beside the status — but the status word
+   alone does not convey partiality. A fourth status (`"partial"`) is **not**
+   implemented, because the frozen document defines three. A test documents
+   the behaviour explicitly. **This is the decision most worth a second
+   look.**
+
+6. **An inconsistent record reads as `not_run`.** `checks_run` non-empty with
+   `violations` NULL is unreachable through `ReportGenerationService`, but is
+   handled as `not_run` rather than `clean` — the safe reading of an
+   inconsistent record is that nothing can be claimed from it.
+
+7. **The response block defaults to `not_run`.** Makes the addition genuinely
+   additive (no existing construction breaks) and makes an omission
+   under-claim rather than over-claim. A default of `clean` would let a
+   forgetful caller manufacture an assurance.
+
+8. **The report id is generated before persistence.** So a failing check can
+   be logged against the report it belongs to; otherwise the only identifier
+   available at check time is the session.
+
+9. **A per-request INFO log line records `check()` duration**, so the cost is
+   observable in a running system rather than only in a benchmark.
+
+### How to Write This in Your Thesis
+
+> The consistency component was connected to the generation pipeline in a
+> deliberately inert configuration: it executes on every report, its findings
+> are stored and returned, and it has no influence on the report's content.
+> This separation was chosen so that the change could be evaluated in two
+> independent parts — whether the detection works, and whether acting on it
+> helps — rather than as a single change whose effects could not be
+> attributed. The inertness is asserted by a test rather than by inspection:
+> the same generation is run with and without the component and the resulting
+> report text is compared byte for byte, so any future change that caused the
+> checker to influence output would fail immediately and visibly.
+>
+> Two aspects of the persistence design are worth reporting because they
+> concern honesty of representation rather than mechanism. First, the system
+> distinguishes three states — not assessed, assessed and clean, assessed with
+> findings — and the derivation that collapses them into a single status for
+> display is implemented once and used by every endpoint, with its branch
+> order arranged so that no combination of inputs can produce a clean verdict
+> unless at least one check actually ran. Second, a report in a language the
+> detectors do not cover is stored as not assessed rather than as clean. A
+> live test of the deployed system produced a Bengali report whose impression
+> asserted that a finding was stable and referred to a prior study, for a
+> patient with no prior study — precisely the fabrication the checks exist to
+> detect, expressed in a language they cannot read. The system reported that
+> report as unchecked, which is correct, and the underlying gap is recorded as
+> an accepted limitation with a named owner rather than presented as covered.
+
+**COMPLETE**

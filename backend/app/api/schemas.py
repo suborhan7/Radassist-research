@@ -20,6 +20,12 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+# The status vocabulary lives in ONE module (see its docstring); imported
+# here so the safe default below cannot drift from the derivation. That
+# module imports from this one only lazily, inside a function, so there is
+# no import cycle.
+from app.api.consistency_status import STATUS_NOT_RUN
+
 # Retrieval-k bounds, mirroring frontend/src/lib/doctor-defaults.ts. The
 # collection is the IU/Indiana train split and the evidence panel is laid out
 # for a handful of cases; a k outside this range is a data-entry mistake.
@@ -141,6 +147,59 @@ class ValidationResponse(BaseModel):
     warnings: list[str]
 
 
+class ConsistencyViolationResponse(BaseModel):
+    """One self-consistency problem found in a generated report (Phase 22
+    v1.2, frozen §3). `severity` is "error" or "warning" -- a violation
+    located in FINDINGS is always "warning", because the Gate C retry
+    regenerates impression/recommendation and never findings, so an error
+    there could not be acted on."""
+
+    check: str
+    severity: str
+    field: str
+    detail: str
+    evidence: dict
+
+
+class ConsistencyResponse(BaseModel):
+    """Phase 22 v1.2 (frozen §3/§5). ADDITIVE: every pre-existing field on
+    the responses that carry this block, including `validation.is_clean`, is
+    unchanged.
+
+    `status` is the one value a UI should branch on, and it is derived in
+    exactly one place (app/api/consistency_status.derive_consistency_status):
+    "not_run" | "clean" | "violations".
+
+    `checks_run` is what makes "not_run" distinguishable from "clean" and
+    must be surfaced, not just used internally: a report where only some
+    checks ran reports status "clean" if those checks found nothing, and
+    `checks_run` is the only field that says which checks earned that
+    verdict. A UI that shows the status without the check list is telling
+    the reader less than the record knows.
+
+    THE UI CONTRACT (frozen §3.4/§8.8): status "not_run" must render as
+    "consistency checks not run" and must NEVER render as a clean or passed
+    state, and it must be visually distinct from "clean". Every Bengali
+    report is "not_run", because all three checks are English-only."""
+
+    status: str
+    checks_run: list[str] = []
+    violations: list[ConsistencyViolationResponse] = []
+    retry_count: int | None = None
+
+
+def _not_run_consistency() -> ConsistencyResponse:
+    """The default for the block below.
+
+    Defaulted so the addition is genuinely additive -- every existing
+    construction of GenerateReportResponse/ReportDetailResponse keeps
+    working unchanged -- and defaulted to NOT_RUN specifically, because a
+    caller that forgets to populate it then under-claims rather than
+    over-claims. A default of "clean" would let an omission read as an
+    assurance."""
+    return ConsistencyResponse(status=STATUS_NOT_RUN, checks_run=[], violations=[], retry_count=None)
+
+
 class GenerationMetadataResponse(BaseModel):
     llm_model: str
     llm_temperature: float
@@ -155,6 +214,10 @@ class GenerateReportResponse(BaseModel):
     formatted_report: FormattedReportResponse
     validation: ValidationResponse
     generation_metadata: GenerationMetadataResponse
+    # Phase 22 v1.2, additive. `validation` above is unchanged and still
+    # carries ResponseValidator's own advisory warnings -- the two answer
+    # different questions and neither replaces the other.
+    consistency: ConsistencyResponse = Field(default_factory=_not_run_consistency)
 
 
 class QuestionnaireQuestionResponse(BaseModel):
@@ -272,6 +335,12 @@ class ReportDetailResponse(BaseModel):
     # that as "not recorded", never as below_floor.
     retrieval_support: str | None = None
     top1_similarity: float | None = None
+    # Phase 22 v1.2 (frozen §5), additive: served straight from the stored
+    # reports.consistency_* columns written at generation time, never
+    # recomputed on read -- the same discipline as retrieval_support above,
+    # and for the same reason. A pre-v1.2 row has all three columns NULL and
+    # therefore reports status "not_run", never "clean".
+    consistency: ConsistencyResponse = Field(default_factory=_not_run_consistency)
 
 
 class ReportListItemResponse(BaseModel):
@@ -315,6 +384,12 @@ class RegenerateSectionResponse(BaseModel):
     field: str
     candidate: str
     context_incomplete: bool
+    # Phase 22 v1.2 (frozen §3): the candidate is checked before it is
+    # returned, so a doctor sees the consistency verdict on the text they
+    # are being offered. NOT written to the report's consistency_* columns
+    # -- those describe the generation-time AI draft, and this candidate is
+    # not persisted anywhere until the doctor accepts it via PATCH.
+    consistency: ConsistencyResponse = Field(default_factory=_not_run_consistency)
 
 
 class DoctorResponse(BaseModel):

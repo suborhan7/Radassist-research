@@ -61,6 +61,9 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_doctor, get_db
+from dataclasses import asdict
+
+from app.api.consistency_status import build_consistency_response
 from app.api.schemas import (
     GenerationMetadataResponse,
     RegenerateSectionResponse,
@@ -159,6 +162,13 @@ def _build_response(detail: ReportDetail) -> ReportDetailResponse:
         # §7.4 S8: the backend calculates the category, the frontend shows it.
         retrieval_support=detail.retrieval_support,
         top1_similarity=detail.top1_similarity,
+        # Phase 22 v1.2: built by the ONE shared derivation used by every
+        # endpoint, from the stored columns -- never recomputed on read.
+        consistency=build_consistency_response(
+            detail.consistency_violations,
+            detail.consistency_checks_run,
+            detail.consistency_retry_count,
+        ),
         audit_log=[
             ReportAuditLogEntryResponse(
                 id=entry.id, doctor_id=entry.doctor_id, action=entry.action, at=entry.at
@@ -342,9 +352,11 @@ def regenerate_section(
         context_builder=request.app.state.context_builder,
         llm_orchestrator=request.app.state.llm_orchestrator,
         prompt_builder=request.app.state.prompt_builder,
+        # Phase 22 v1.2: the same lifespan singleton the generation path uses.
+        consistency_service=getattr(request.app.state, "consistency_service", None),
     )
     try:
-        candidate, context_incomplete = edit_service.regenerate_section(
+        candidate, context_incomplete, consistency = edit_service.regenerate_section(
             report_id, request_body.field, current_doctor.id
         )
     except ReportNotFoundError as exc:
@@ -354,6 +366,21 @@ def regenerate_section(
     except ReportAlreadyFinalizedError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    # Phase 22 v1.2 (frozen §3): the candidate's own consistency verdict.
+    # `consistency` here is a ConsistencyResult (checks that ran on the
+    # candidate), not persisted columns -- nothing about a regeneration is
+    # written to the report until the doctor accepts it via PATCH. It is
+    # mapped through the SAME builder so the status word means the same thing
+    # on every endpoint.
+    snapshot = (
+        ([asdict(v) for v in consistency.violations], list(consistency.checks_run),
+         consistency.retry_count)
+        if consistency is not None and consistency.checks_run
+        else (None, list(consistency.checks_run) if consistency is not None else None, None)
+    )
     return RegenerateSectionResponse(
-        field=request_body.field, candidate=candidate, context_incomplete=context_incomplete
+        field=request_body.field,
+        candidate=candidate,
+        context_incomplete=context_incomplete,
+        consistency=build_consistency_response(*snapshot),
     )

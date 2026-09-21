@@ -326,7 +326,8 @@ def test_finalize_with_empty_findings_raises_validation_error():
 # --- Phase 19: regenerate_section() ---
 
 
-def _make_regenerate_service(db, cases_by_uid, voted_labels, context, candidate="regenerated text"):
+def _make_regenerate_service(db, cases_by_uid, voted_labels, context, candidate="regenerated text",
+                             consistency_service=None):
     fakes = {
         "vector_store": FakeVectorStore(cases_by_uid),
         "label_voting_service": FakeLabelVoter(voted_labels),
@@ -341,6 +342,7 @@ def _make_regenerate_service(db, cases_by_uid, voted_labels, context, candidate=
         context_builder=fakes["context_builder"],
         llm_orchestrator=fakes["llm_orchestrator"],
         prompt_builder=fakes["prompt_builder"],
+        consistency_service=consistency_service,
     )
     return service, fakes
 
@@ -356,7 +358,7 @@ def test_regenerate_section_returns_candidate_without_persisting():
     )
 
     service, fakes = _make_regenerate_service(db, {"u1": case_a}, [], context=None, candidate="new findings text")
-    candidate, context_incomplete = service.regenerate_section(str(report_id), "findings", str(owner_id))
+    candidate, context_incomplete, _consistency = service.regenerate_section(str(report_id), "findings", str(owner_id))
 
     assert candidate == "new findings text"
     assert context_incomplete is False
@@ -438,7 +440,7 @@ def test_regenerate_section_context_incomplete_true_when_both_columns_null():
     case_a = RetrievedCase(source_uid="u1", similarity=0.9, findings="fa", impression="ia", labels=())
 
     service, fakes = _make_regenerate_service(db, {"u1": case_a}, [], context=None)
-    _, context_incomplete = service.regenerate_section(str(report_id), "findings", str(owner_id))
+    _, context_incomplete, _ = service.regenerate_section(str(report_id), "findings", str(owner_id))
 
     assert context_incomplete is True
 
@@ -454,7 +456,7 @@ def test_regenerate_section_context_incomplete_false_when_both_columns_real():
     case_a = RetrievedCase(source_uid="u1", similarity=0.9, findings="fa", impression="ia", labels=())
 
     service, fakes = _make_regenerate_service(db, {"u1": case_a}, [], context=None)
-    _, context_incomplete = service.regenerate_section(str(report_id), "findings", str(owner_id))
+    _, context_incomplete, _ = service.regenerate_section(str(report_id), "findings", str(owner_id))
 
     assert context_incomplete is False
 
@@ -498,7 +500,7 @@ def test_regenerate_section_context_incomplete_asymmetric_state_documented(
     case_a = RetrievedCase(source_uid="u1", similarity=0.9, findings="fa", impression="ia", labels=())
 
     service, fakes = _make_regenerate_service(db, {"u1": case_a}, [], context=None)
-    _, context_incomplete = service.regenerate_section(str(report_id), "findings", str(owner_id))
+    _, context_incomplete, _ = service.regenerate_section(str(report_id), "findings", str(owner_id))
 
     assert context_incomplete is False
 
@@ -614,3 +616,67 @@ def test_delete_of_missing_report_raises_not_found():
         ReportEditService(db).delete(str(uuid.uuid4()), str(uuid.uuid4()))
 
     db.close()
+
+# --- Phase 22 v1.2 (frozen §3): the candidate is checked, nothing is persisted ---
+
+TERMS_V12 = ("stable", "unchanged", "interval", "again", "redemonstrated",
+             "persistent", "previously", "compared with", "new")
+
+
+def _regen_fixture(db):
+    owner_id = uuid.uuid4()
+    case_a = RetrievedCase(source_uid="u1", similarity=0.9, findings="fa", impression="ia")
+    session_id = _seed_session(db, owner_id, study_uids=["u1"])
+    report_id = _seed_report(db, session_id, questionnaire_answers={}, clinical_notes="")
+    return owner_id, case_a, report_id
+
+
+def test_regenerate_section_returns_a_consistency_result_for_the_candidate():
+    from app.services.report_consistency_service import CHECK_TEMPORAL, ReportConsistencyService
+
+    db = sessionmaker(bind=_make_engine())()
+    owner_id, case_a, report_id = _regen_fixture(db)
+    service, _ = _make_regenerate_service(
+        db, {"u1": case_a}, [], context=None,
+        candidate="Stable cardiomegaly without overt pulmonary edema.",
+        consistency_service=ReportConsistencyService(temporal_terms=TERMS_V12),
+    )
+    candidate, _, consistency = service.regenerate_section(str(report_id), "impression", str(owner_id))
+
+    assert candidate == "Stable cardiomegaly without overt pulmonary edema."
+    assert consistency is not None
+    assert CHECK_TEMPORAL in consistency.checks_run
+    temporal = [v for v in consistency.violations if v.check == CHECK_TEMPORAL]
+    assert len(temporal) == 1
+    assert temporal[0].evidence["term"] == "stable"
+
+
+def test_regenerate_section_does_not_write_the_report_consistency_columns():
+    """Frozen §5: those columns describe the generation-time AI draft. A
+    candidate is not persisted anywhere until the doctor accepts it."""
+    from app.services.report_consistency_service import ReportConsistencyService
+
+    db = sessionmaker(bind=_make_engine())()
+    owner_id, case_a, report_id = _regen_fixture(db)
+    before = db.query(ReportRecord).filter(ReportRecord.id == report_id).one()
+    before_snapshot = (before.consistency_violations, before.consistency_checks_run,
+                       before.consistency_retry_count)
+
+    service, _ = _make_regenerate_service(
+        db, {"u1": case_a}, [], context=None, candidate="Stable cardiomegaly.",
+        consistency_service=ReportConsistencyService(temporal_terms=TERMS_V12),
+    )
+    service.regenerate_section(str(report_id), "impression", str(owner_id))
+
+    db.expire_all()
+    after = db.query(ReportRecord).filter(ReportRecord.id == report_id).one()
+    assert (after.consistency_violations, after.consistency_checks_run,
+            after.consistency_retry_count) == before_snapshot
+
+
+def test_regenerate_section_returns_none_consistency_when_no_checker_is_wired():
+    db = sessionmaker(bind=_make_engine())()
+    owner_id, case_a, report_id = _regen_fixture(db)
+    service, _ = _make_regenerate_service(db, {"u1": case_a}, [], context=None)
+    _, _, consistency = service.regenerate_section(str(report_id), "findings", str(owner_id))
+    assert consistency is None

@@ -92,6 +92,8 @@ from app.services.llm_orchestrator import LLMOrchestrator
 from app.services.prompt_builder import PromptBuilder
 from app.services.questionnaire_templates import QuestionnaireTemplateProvider
 from app.services.report_formatter import ReportFormatter
+from app.infrastructure.chexbert_labeler import ChexbertLabeler, ChexbertUnavailableError
+from app.services.report_consistency_service import ReportConsistencyService
 from app.services.response_validator import ResponseValidator
 from app.services.retrieval_service import RetrievalService
 from app.services.similarity_search import SimilaritySearchPolicy
@@ -184,6 +186,48 @@ async def lifespan(app: FastAPI):
     )
     app.state.response_validator = ResponseValidator()
     app.state.report_formatter = ReportFormatter()
+
+    # --- Phase 22 v1.2 (frozen §3, §7): report self-consistency. ---
+    #
+    # The labeler is constructed ONCE here, like every other model in this
+    # lifespan, because loading a BERT checkpoint per request would dominate
+    # the ~9 ms the check itself costs.
+    #
+    # STARTUP MUST NOT FAIL BECAUSE OF THE LABELER. A missing or unreadable
+    # checkpoint is a degraded-capability condition, not a broken server: the
+    # contradiction check is dropped, the other two still run, and
+    # ReportConsistencyService omits "contradiction" from checks_run so the
+    # gap is recorded rather than hidden. Refusing to boot would take out
+    # report generation entirely to protect a warning.
+    section_labeler = None
+    try:
+        logger.info(
+            "lifespan startup: loading ChexbertLabeler (should log exactly once per app lifetime)"
+        )
+        section_labeler = ChexbertLabeler(
+            checkpoint_path=settings.CHEXBERT_CHECKPOINT_PATH,
+            device=settings.CHEXBERT_DEVICE,
+            max_length=settings.CHEXBERT_MAX_LENGTH,
+            batch_size=settings.CHEXBERT_BATCH_SIZE,
+        )
+    except ChexbertUnavailableError as exc:
+        # warning, not error: this is a supported configuration.
+        logger.warning(
+            "CheXbert labeler unavailable, continuing without it -- the "
+            "findings/impression contradiction check will not run and will be "
+            "omitted from checks_run (never reported as clean): %s",
+            exc,
+        )
+
+    # Every constructor value comes off `settings` here, once, rather than
+    # inside the service -- same rule as ModalityGateService above. The
+    # transplant thresholds are deliberately NOT passed: they are Gate B's to
+    # calibrate, and until then that check records its scores and emits no
+    # violation (frozen §3.2). Passing a number now would be inventing one.
+    app.state.consistency_service = ReportConsistencyService(
+        temporal_terms=settings.consistency_temporal_terms,
+        labeler=section_labeler,
+    )
     app.state.questionnaire_provider = QuestionnaireTemplateProvider()
     app.state.deterministic_comparator = DeterministicComparator()
     app.state.password_hasher = Argon2PasswordHasher()

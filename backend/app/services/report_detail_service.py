@@ -103,6 +103,15 @@ class ReportDetail:
     # floor.
     retrieval_support: str | None = None
     top1_similarity: float | None = None
+    # Phase 22 v1.2 (frozen §5). Carried through so GET /reports/{id} can
+    # serve the consistency block from the STORED columns rather than
+    # recomputing anything on read -- the same discipline as
+    # retrieval_support above. All three nullable together: a pre-v1.2 row
+    # has no recorded consistency state, which the API renders as
+    # status "not_run", never as clean.
+    consistency_violations: list | None = None
+    consistency_checks_run: list | None = None
+    consistency_retry_count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -238,4 +247,11 @@ class ReportDetailService:
             # at-or-above the floor.
             retrieval_support=record.retrieval_support,
             top1_similarity=record.top1_similarity,
+            # Phase 22 v1.2: read straight off the persisted row, never
+            # recomputed. Re-running the checks at read time would judge the
+            # doctor's CURRENT edited text with the generation-time verdict's
+            # name on it.
+            consistency_violations=record.consistency_violations,
+            consistency_checks_run=record.consistency_checks_run,
+            consistency_retry_count=record.consistency_retry_count,
         )
