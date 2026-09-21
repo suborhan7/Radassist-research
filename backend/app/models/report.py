@@ -42,7 +42,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, String, Uuid, func
+from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, Integer, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
@@ -127,5 +127,42 @@ class ReportRecord(Base):
     # "no labels were voted".
     voted_labels: Mapped[list | None] = mapped_column(JSON, nullable=True)
     agreement: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # --- Phase 22 v1.2: report self-consistency (migration 7f2a91c4d6e8) ---
+    # Frozen architecture: docs/phase22/fix_architecture_v1.2_FROZEN.md §5
+    # (frozen at docs commit 810240ea).
+    #
+    # NULL AND [] ARE NOT INTERCHANGEABLE, and no read path may treat them
+    # as such. This is the whole reason these columns exist in this shape:
+    #
+    #   NULL  -> NO RECORDED CONSISTENCY STATE. Either the report predates
+    #            v1.2, or the checks did not run for it. It does NOT mean
+    #            the report is clean; nothing was assessed.
+    #   []    -> the checks RAN and found nothing. The report is clean, and
+    #            `consistency_checks_run` names which checks earned that.
+    #
+    # Rendering the two identically would turn an acknowledged coverage gap
+    # into an affirmative false assurance, which is a worse failure than the
+    # gap itself -- see §3.4/§8.8 on Bengali reports, where all three checks
+    # are English-only and every `bn` report therefore stores
+    # `consistency_checks_run == []` and must display "consistency checks
+    # not run", never a clean state.
+    #
+    # Same JSON column type and nullable-with-no-backfill discipline as
+    # voted_labels above (migration c3d81b6a4f27, whose declaration reads
+    # `voted_labels: Mapped[list | None] = mapped_column(JSON, nullable=True)`)
+    # and the two migrations before it. No server_default and no Python
+    # default, deliberately: a default would manufacture a recorded state
+    # for rows that never had one, which is exactly the NULL-vs-[] collapse
+    # the paragraph above forbids.
+    #
+    # `consistency_retry_count` counts THIS service's semantic retry (0 or 1,
+    # frozen §4). It is NOT D5's structural/content retry count, which counts
+    # a different mechanism with a different budget and is deliberately not
+    # implemented in v1.2 -- see docs/decisions/decision_log.md. The two must
+    # never share a column.
+    consistency_violations: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    consistency_checks_run: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    consistency_retry_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     session: Mapped["RetrievalSession"] = relationship()

@@ -12182,3 +12182,242 @@ connects it.
 > have been probable rather than exact, and exactness was the stated condition.
 
 **COMPLETE**
+
+---
+
+## Phase 22 Gate A / Step A3 — Consistency Columns Migration — 2026-09-21 — COMPLETE
+
+### Context
+
+Steps A1 and A2 built `ReportConsistencyService` and its CheXbert labeler,
+both unwired. Step A3 adds the three columns its result is persisted into,
+per the frozen architecture §5 (`docs/phase22/fix_architecture_v1.2_FROZEN.md`,
+frozen at docs commit **810240ea**). Still no wiring: nothing writes these
+columns yet, which is Step A4.
+
+The frozen document's §5 is short but its central claim is not cosmetic:
+**NULL and `[]` are different states and no read path may treat them as
+interchangeable.** NULL means no recorded consistency state — the report
+predates v1.2, or the checks did not run for it. `[]` means the checks ran
+and found nothing. Collapsing the two would turn an acknowledged coverage
+gap into an affirmative false assurance, which is the specific failure the
+whole of Phase 22 exists to remove. That distinction is what dictates the
+column shape: nullable, no `server_default`, no Python default.
+
+### Implementation & Validation
+
+**Pre-flight.** The backend uses **one** database, scheme `sqlite`, resolved
+from `Settings.DATABASE_URL` (`DEFAULT_DATABASE_URL = f"sqlite:///{_BACKEND_DIR / 'dev.db'}"`),
+with `has_credentials: False`. `alembic/env.py:20` sets Alembic's URL from
+that same setting rather than a second source
+(`config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)`), and
+`alembic.ini`'s own `sqlalchemy.url` is empty. A repository-wide grep for
+`postgres` across `backend/` returned nothing, so **§3f does not apply**:
+there is no PostgreSQL to run the verification against, and none was
+invented to satisfy the step.
+
+Backups were taken outside the repository, into the session scratchpad, and
+verified by hash rather than by assumption:
+
+```
+-rw-r--r-- 1 user2 197121 8155136 Sep 21 14:36 dev.db.20260921T143642.bak
+-rw-r--r-- 1 user2 197121  167936 Sep 21 14:36 test.db.20260921T143642.bak
+
+sha256 of backend/dev.db and its backup:
+      2 a28c74f33bbed7b53ac46f0d32ca97a730edfece7d59df99c3c8d95a6cc6572b
+```
+
+(`uniq -c` reporting `2` for a single hash is the check: both files hash
+identically.) `test.db` is backed up too, though it is only ever built and
+torn down by the suite.
+
+Alembic state before touching anything — **exactly one head, and current ==
+head**, as required:
+
+```
+$ alembic heads    -> c3d81b6a4f27 (head)
+$ alembic current  -> c3d81b6a4f27 (head)
+```
+
+Row count before: **1794** reports.
+
+**Model.** Three columns on `ReportRecord`, mirroring `voted_labels`'
+declaration from migration `c3d81b6a4f27` — quoted in the model comment
+itself so the precedent is visible at the point of use:
+
+```python
+voted_labels: Mapped[list | None] = mapped_column(JSON, nullable=True)
+```
+
+becomes, for the new columns:
+
+```python
+consistency_violations: Mapped[list | None] = mapped_column(JSON, nullable=True)
+consistency_checks_run: Mapped[list | None] = mapped_column(JSON, nullable=True)
+consistency_retry_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+```
+
+Same `JSON` type, same nullable-no-backfill discipline as `a1f4c72b9e30`,
+`528c741665ee` and `c3d81b6a4f27`. Verified by introspection rather than by
+reading:
+
+```
+consistency_violations       type=JSON     nullable=True default=None server_default=None
+consistency_checks_run       type=JSON     nullable=True default=None server_default=None
+consistency_retry_count      type=INTEGER  nullable=True default=None server_default=None
+```
+
+**Migration `7f2a91c4d6e8`**, `down_revision = "c3d81b6a4f27"` (the head from
+pre-flight), all three columns added together in one revision, no backfill,
+no data update, `downgrade()` dropping exactly these three in reverse order.
+`batch_alter_table` as the two prior migrations already use, because the
+target is SQLite.
+
+Why one revision and not three: the columns are written by one code path in
+one transaction, and a partially-applied consistency snapshot is the same
+half-written state requirement S7 was created to repair.
+
+Why `consistency_retry_count` is its own column rather than derived from the
+violations list: a report can have violations **and** zero retries (all
+warning-severity, located in findings, which the retry never regenerates —
+§4.1), and it can have a retry recorded **with** an empty violations list
+(the retry succeeded). Neither is inferable from the other.
+
+**Verification — every item with real output.**
+
+*(a) upgrade.* `alembic heads` still reports a single head, now
+`7f2a91c4d6e8`:
+
+```
+$ alembic upgrade head
+INFO  Running upgrade c3d81b6a4f27 -> 7f2a91c4d6e8, add consistency columns to reports (phase22 v1.2)
+$ alembic current
+7f2a91c4d6e8 (head)
+```
+
+*(b) live schema.* Read back from `PRAGMA table_info(reports)`:
+
+```
+  consistency_violations       type=JSON     notnull=0 default=None
+  consistency_checks_run       type=JSON     notnull=0 default=None
+  consistency_retry_count      type=INTEGER  notnull=0 default=None
+```
+
+`notnull=0` and `default=None` on all three — the nullable, defaultless shape
+the NULL-vs-`[]` distinction requires.
+
+*(c) existing rows.*
+
+```
+  row count now            : 1794   (pre-migration: 1794)
+  rows with all three NULL : 1794
+  consistency_violations       NON-NULL rows: 0
+  consistency_checks_run       NON-NULL rows: 0
+  consistency_retry_count      NON-NULL rows: 0
+```
+
+All 1,794 pre-existing reports carry NULL on all three, which is the honest
+record: they predate the feature and nothing was assessed about them.
+
+*(d) round trip.*
+
+```
+$ alembic downgrade -1
+INFO  Running downgrade 7f2a91c4d6e8 -> c3d81b6a4f27, add consistency columns to reports (phase22 v1.2)
+  columns dropped : ['consistency_violations', 'consistency_checks_run', 'consistency_retry_count'] (3/3)
+  row count       : 1794 (expected 1794)
+  voted_labels still present: True | agreement: True
+  total columns   : 23
+
+$ alembic upgrade head
+INFO  Running upgrade c3d81b6a4f27 -> 7f2a91c4d6e8, ...
+  columns restored: ['consistency_violations', 'consistency_checks_run', 'consistency_retry_count'] (3/3)
+  row count       : 1794 (expected 1794)
+  total columns   : 26 (expected 26)
+  all-three-NULL  : 1794
+```
+
+The downgrade check deliberately also asserts `voted_labels` and `agreement`
+are **still present**: a `drop_column` that took a neighbouring column with it
+would otherwise pass a count-only check.
+
+*(e) drift.* Alembic 1.18.5 has `check`:
+
+```
+$ alembic check
+No new upgrade operations detected.
+EXIT=0
+```
+
+Model and live schema agree; there is no pending autogenerate difference.
+
+*(f)* Not applicable — SQLite only, established in pre-flight.
+
+**Model-built schema matches migration-built schema.** The suite's own
+database is created from the models via `create_all`, not from migrations,
+and `conftest.py` drops its tables at teardown, so `test.db` cannot be
+inspected after a run. Built fresh in memory instead:
+
+```
+schema built from MODELS via create_all (in-memory):
+  consistency_violations       type=JSON     nullable=True default=None
+  consistency_checks_run       type=JSON     nullable=True default=None
+  consistency_retry_count      type=INTEGER  nullable=True default=None
+  total columns: 26
+```
+
+26 columns, identical types and nullability to the migrated `dev.db`. The two
+construction paths have not diverged.
+
+**Tests.**
+
+```
+426 passed, 14 warnings in 182.34s (0:03:02)
+
+$ pytest -q --collect-only                                        -> 426
+$ pytest -q --collect-only --ignore=.../test_chexbert_labeler.py \
+                           --ignore=.../test_report_consistency_service.py -> 370
+```
+
+370 pre-Phase-22 + 56 (31 from A1, 25 from A2) = 426, zero failures. A3 adds
+no tests of its own — the brief did not ask for any, and the schema assertions
+above are made directly against the live and model-built databases rather than
+through the suite.
+
+**Scope.** `git diff --stat`: `backend/app/models/report.py` alone, 38
+insertions and 1 deletion, the deletion being the SQLAlchemy import line
+gaining `Integer`. Plus the one new migration file. No service, schema, route,
+prompt builder or consistency-service change. `dev.db` and `test.db` are
+untracked, so no database binary enters the commit.
+
+### How to Write This in Your Thesis
+
+> Persisting the consistency result required three new nullable columns on the
+> reports table, added in a single migration with no backfill. The absence of
+> a default value is the substantive design decision rather than an omission.
+> A null in these columns means that no consistency assessment was recorded
+> for that report — either it predates the feature, or the checks did not run
+> for it — whereas an empty list means the checks ran and found nothing. Had
+> the columns carried a default, every pre-existing report would have acquired
+> a recorded state it never had, and the two conditions would have become
+> indistinguishable at read time. That distinction is not academic: reports in
+> the system's second supported language receive none of the checks, because
+> all three are English-only, and an interface that rendered "not assessed"
+> identically to "assessed and satisfactory" would convert a documented
+> coverage gap into a false assurance — the precise class of failure this
+> phase was opened to remove.
+>
+> The migration was verified against a copy of the live database rather than a
+> fresh one, because the properties worth checking only exist where there is
+> prior data. All 1,794 existing reports were confirmed to carry null in all
+> three columns after the upgrade, with the row count unchanged; the migration
+> was then reversed and reapplied, confirming that the reversal removes
+> exactly the three new columns, leaves the adjacent columns from the previous
+> migration intact, and preserves the row count. A schema-drift check
+> confirmed that the model definitions and the migrated database agree, and
+> the schema built directly from the model definitions was compared against
+> the migrated one to confirm that the two construction paths the project uses
+> — migrations in deployment, model metadata in the test suite — had not
+> diverged.
+
+**COMPLETE**
