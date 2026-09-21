@@ -13297,3 +13297,168 @@ nothing verifies what it does with them.
 > trimmed or the context to be enlarged.
 
 **COMPLETE**
+
+---
+
+## Phase 22 Gate A / Step A6 — Pre-registered Gate A Evaluation Run — 2026-09-22 — COMPLETE
+
+### Context
+
+A1–A5 built the consistency service, its labeler, its columns, its wiring and
+the four prompt changes. A6 is the run that decides whether the prompt changes
+worked, against criteria fixed before any v1.2 report existed.
+
+The pre-registration is the point of the step. `gate_a_run_plan.md` was
+committed at **`55e8bc08`, 2026-09-22 01:09:38 +0600**, quoting every endpoint,
+definition, sample size, bootstrap configuration and the verdict rule verbatim
+from the frozen document with line references — and the first v1.2 report was
+generated after it. No endpoint was added, dropped or redefined afterwards.
+
+### Implementation & Validation
+
+**Configuration check against Phase 21.** Model name, ollama version,
+temperature, seed, both retry budgets, `num_ctx`, collection name and embedding
+model/version all **match**. Phase 21 recorded **no model digest, no collection
+document count and no collection ID hash**, so those three could not be
+compared — there was nothing to differ from. They are recorded now
+(`365c0bd3c000`; 2462 documents; sorted-ID sha256 `c6b2ab85…`) so every future
+run can make the comparison Phase 21 could not. Supporting evidence that the
+store is unchanged: the HNSW index files were last written 2026-07-18, two
+months before the Phase 21 Arm C run. Evidence mode was verified **live** as
+`full` via `/system/stats` before generation started.
+
+**A harness decision that protected the baseline.** The obvious command,
+`run_generation_eval.py --arm full --tag n477`, writes into
+`generation_arm_full_n477` — which *is* the stored Phase 21 Arm C artifact this
+run is paired against. Running it would have destroyed the comparison. The run
+drove the identical API path with identical parameters from the explicit
+477-uid list instead, into a versioned directory, resumable per case. The
+deviation and its reason are recorded in the run config and the results
+document.
+
+**Generation: 477/477 completed, 0 failed**, mean 4.50 s/report. Consistency
+status **partial 459, violations 17**, no `clean` — exactly what amendment 01
+predicts before Gate B, since the transplant check cannot emit a violation and
+so is not counted as having run.
+
+**Results — all three gating criteria pass.**
+
+| endpoint | v1.1 | v1.2 | diff | 95% CI | gate |
+|---|---|---|---|---|---|
+| **temporal-term rate** (primary) | 0.3899 | 0.0503 | **−0.3396** | [−0.3836, −0.2998] | **PASS** |
+| **micro-F1** (clinical guardrail) | 0.5250 | 0.5886 | +0.0636 | [+0.0314, +0.0961] | **PASS** |
+| **ROUGE-L** (suppl. guardrail) | 0.2496 | 0.2646 | +0.0149 | [−0.0024, +0.0317] | **PASS** |
+| harmful transplant (secondary) | 0.0461 | 0.0210 | −0.0252 | [−0.0419, −0.0105] | not a gate |
+| strict contradiction (secondary) | 0.0461 | 0.0084 | −0.0377 | [−0.0566, −0.0189] | not a gate |
+| held-out synonyms (tripwire) | 0.0377 | 0.0084 | −0.0294 | [−0.0461, −0.0147] | not a gate |
+| macro-F1 (descriptive) | 0.1734 | 0.1958 | +0.0224 | [−0.0266, +0.0683] | not a gate |
+
+The temporal-term rate fell from 186 cases to 24 out of 477. The clinical
+guardrail was a non-inferiority bound and the measurement is an improvement
+whose CI excludes zero on the positive side; it is reported as *clearing the
+bound*, which is what was pre-registered, not promoted to a new claim.
+ROUGE-L's CI includes zero, so it is **not** evidence of improvement — only
+that drift is bounded well inside the margin.
+
+**The word-avoidance tripwire did not fire.** The held-out list — ten terms
+never shown to the model, verified absent from every prompt the backend can
+send — fell alongside the primary rate, 18 → 4. Under §6.4's reading rule that
+is consistent with a real fix rather than the model learning to dodge the words
+it was shown. Had the primary collapsed while the held-out list held steady,
+adoption would have been withheld regardless of the endpoints.
+
+**The noise floor is the strongest support for the primary reading, and it is
+supplementary.** v1.1 was checked out at its tag in a separate worktree, served
+against a byte-verified copy of the same collection, and re-run on the 100
+pilot uids:
+
+```
+byte-identical to stored  : 33/100 (33.0%)
+temporal rate, STORED v1.1: 46/100 (46.0%)
+temporal rate, RE-RUN v1.1: 46/100 (46.0%)
+noise-floor movement      : +0.0 percentage points
+```
+
+At temperature 0.0 with seed 42, **67% of outputs are not byte-identical on
+re-run** — the generation is materially non-deterministic, quantifying
+something this project had recorded once before but never measured. Yet the
+primary endpoint's own measurement moved **not at all**. The text varies; the
+endpoint does not. A −34 point result therefore cannot be attributed to re-run
+noise.
+
+**Two post-hoc analyses, reported because they change how the results read.**
+
+*(a) The baseline discrepancy, resolved.* The measured v1.1 temporal rate is
+186/477 = 0.3899, while the frozen document's baseline is 167/477 = 0.3501.
+The run plan (§3.1, pre-registered) defines the endpoint over **nine** terms
+across **three** sections; diagnosis.md §2b's headline used **five** terms
+across **two**. Re-measuring under §2b's own definition reproduces its baseline
+**exactly** — v1.1 = 167/477 = 0.3501 — with v1.2 at 13/477 and a drop of
+−0.3229 against the pre-registered −0.3396. The result is robust to which
+definition is used, and the paired comparison was never affected because both
+arms were measured identically.
+
+*(b) v1.2 impressions are substantially shorter* — median 9 → 5 words,
+under-5-word impressions 124 → 197. This is the mechanism behind the transplant
+scorable denominator falling 353 → 280, and it means **part of the
+harmful-transplant improvement may be shorter text becoming unscorable rather
+than less copying**. It may also relate to the micro-F1 improvement, since a
+shorter impression asserts fewer labels and can reduce false positives.
+Neither possibility is tested here, and neither is claimed.
+
+**Adoption is not final.** Three of three gating criteria pass, and the
+word-avoidance trigger did not fire — but the second withhold-pending-review
+trigger, a clear grounding failure in the blinded manual read, **cannot be
+evaluated yet**. The packet is built: 20 v1.1 + 20 v1.2 reports on the same 20
+uids, pooled, shuffled, seed 20260921, version markers stripped, the
+server-authored disclaimer excluded because it names the retrieval support
+category and would identify the arm. A self-check confirms **no version or uid
+marker survives in the packet**. The answer key is a separate file. Nothing is
+filled in.
+
+**A v1.1 wiring finding, surfaced by the noise-floor setup and not fixed.**
+`ChromaVectorStore` carries its own `DEFAULT_PERSIST_PATH` derived from the
+repo root, and `main.py` constructs it with no arguments — so it **never reads
+`settings.CHROMA_PERSIST_PATH`**. No environment override could redirect it,
+which cost three failed attempts before the code was read rather than assumed.
+Resolved for this run by copying the collection into the worktree and verifying
+the sorted-ID sha256 matches the run plan exactly. This is pre-existing
+behaviour at the frozen tag, is not a defect introduced by Phase 22, and was
+**not** fixed — A6 forbids code changes.
+
+### How to Write This in Your Thesis
+
+> The revised prompt was evaluated against criteria registered before any
+> output was generated. The registration document fixed every endpoint, its
+> definition, the sample size, the resampling configuration and the decision
+> rule, and was committed to version control ahead of the run so that none of
+> them could be adjusted once results were visible. All 477 evaluation cases
+> completed without failure.
+>
+> The primary endpoint, the proportion of reports containing unsupported
+> comparison language, fell from 39.0% to 5.0%, a paired difference of −34.0
+> percentage points with a confidence interval excluding zero. Both guardrails
+> cleared their pre-set non-inferiority margins; the clinical guardrail in fact
+> improved. Two secondary endpoints, measuring text transplanted from other
+> patients' reports and self-contradiction between report sections, also fell.
+>
+> Two features of the design do more work than the headline number. First, a
+> list of comparison-language synonyms was reserved for scoring and never shown
+> to the model, precisely so that a model which had merely learned to avoid the
+> forbidden words could be distinguished from one which had stopped making the
+> unsupported claims. That reserved list fell in step with the primary
+> endpoint, which is the pattern expected of a genuine change rather than
+> word-avoidance. Second, the prior version was re-run against itself to
+> establish how much movement mere repetition produces. Two thirds of its
+> outputs differed textually on re-run despite deterministic sampling settings,
+> but the endpoint itself did not move at all, so the observed improvement
+> cannot be attributed to run-to-run variation.
+>
+> One caveat is recorded against the transplantation result rather than argued
+> away. Impressions produced by the revised prompt are materially shorter, and
+> the transplantation measure is undefined for very short text, so the
+> population over which it could be computed shrank between versions. Some
+> portion of that improvement may reflect shorter output rather than less
+> copying, and the present design cannot separate the two.
+
+**COMPLETE**

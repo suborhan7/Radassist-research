@@ -1,0 +1,35 @@
+{
+  "phase": 22,
+  "gate": "A",
+  "arm": "full",
+  "system_version": "v1.2",
+  "commit": "52884b0eba23e39a935f97e0e8111e9310c3b8c9",
+  "run_plan_commit": "55e8bc08506cb3eb6066e117d9d53bbb00c3a7f5",
+  "evaluation_date": "2026-09-22T01:47:21+0600",
+  "sample_size": 477,
+  "sample_source": "the 477 completed Arm C uids, taken verbatim from generation_arm_full_n477/per_case_results.csv",
+  "completed": 477,
+  "failed": 0,
+  "consistency_service": "observational (Gate A): no retry, nothing blocked, no generated text altered",
+  "generation_settings": {
+    "model": "llama3:8b",
+    "model_digest": "365c0bd3c000",
+    "temperature": 0.0,
+    "seed": 42,
+    "keep_alive": "30m",
+    "num_ctx": 4096,
+    "content_retry_count": 2,
+    "transport_retry_count": 1,
+    "ollama_version": "0.34.2"
+  },
+  "retrieval": {
+    "collection": "iu_cxr_biomedclip_v1_train",
+    "documents": 2462,
+    "sorted_id_sha256": "c6b2ab850fc9b3fb9a1bfc6493cdd52b5322c1d9d47b4d5dba88afeb12ef72f6",
+    "embedding_model": "biomedclip",
+    "embedding_version": "v1"
+  },
+  "declared_projection": "PA",
+  "language": "en",
+  "harness_note": "NOT run_generation_eval.py --tag n477: that writes into the stored Phase 21 Arm C directory and would overwrite the baseline. Identical API path and parameters, explicit uid list, resumable, versioned output directory."
+}
