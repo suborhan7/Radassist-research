@@ -5,6 +5,15 @@ disposable copy of `dev.db`), not from mockups. Viewport is exactly 1440×900,
 pinned with `Emulation.setDeviceMetricsOverride` rather than a window size, so
 the whole reading station is in frame with no dead band.
 
+**The two themes are different palettes, not one inverted.** Dark is the
+original "Reading Room" cyan-on-near-black, which the product was designed for.
+Light is derived from the Orthoc medical template and reads green — its hue,
+its white-card-on-tinted-page surfaces and its button pattern (solid fill
+inverting to an outline on hover). Orthoc's own colour values fail WCAG AA in
+six of eight text pairs, so the hue is Orthoc's and the luminance is this
+project's; the derivation and all 27 measured pairs are recorded in
+`frontend/src/styles/tokens.css`.
+
 Regenerate with:
 
 ```bash

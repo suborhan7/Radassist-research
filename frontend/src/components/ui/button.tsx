@@ -47,11 +47,30 @@ export const BUTTON_BASE =
  * amber because this theme has no red.
  */
 export const VARIANT: Record<Variant, string> = {
-  primary: "bg-cyan text-cyan-ink font-semibold hover:brightness-110",
+  // Orthoc's own pattern, transcribed from its stylesheet (the palette itself
+  // lives in tokens.css, which is the only file permitted to hold colour
+  // values): a solid accent fill with ink text and a 1px border of that same
+  // accent, which on hover drops the fill and keeps the border, leaving
+  // accent-coloured text in an outline. Its rules read
+  //
+  //     .btn-box a        { background:<accent>; color:<white>;
+  //                         border:1px solid <accent> }
+  //     .btn-box a:hover  { background:transparent; color:<accent> }
+  //
+  // The border is on the RESTING state too, not added at hover -- that is what
+  // keeps the button from resizing by 2px as the pointer crosses it.
+  primary: "border border-cyan bg-cyan text-cyan-ink font-semibold hover:bg-transparent hover:text-cyan",
+  danger: "border border-amber bg-amber text-amber-ink font-semibold hover:bg-transparent hover:text-amber",
+
+  // Secondary starts where primary lands, so it is subordinate at rest, and
+  // fills in on hover. Orthoc has no secondary button to copy -- every button
+  // it ships is the solid one above -- so this is the complement rather than a
+  // borrowed style, and it keeps one primary per view visually true.
   secondary:
     "border border-cyan-line bg-cyan-wash text-cyan hover:bg-cyan hover:text-cyan-ink hover:border-cyan",
+
+  // Neutral, for actions that are not offers (the out-of-scope Download PDF).
   ghost: "border border-strong bg-bg-hover text-text-primary hover:border-cyan-line hover:text-cyan",
-  danger: "bg-amber text-amber-ink font-semibold hover:brightness-110",
 };
 
 // One primary per view. Heights come from the spacing scale (h-N == var(--space-N)).

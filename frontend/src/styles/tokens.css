@@ -203,61 +203,100 @@
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * LIGHT
+ * LIGHT — "Orthoc"
  *
- * Not a tint of the dark palette — re-derived, because the two accents do not
- * survive inversion. #22E3E8 on a light surface measures 1.5:1 and is
- * unreadable; #FFB020 is worse. Both are replaced by dark, saturated versions
- * of the same two hues, so the vocabulary is unchanged (cyan still means
- * retrieval and interaction, amber still means look here) while the luminance
- * relationship flips. The `-ink` tokens flip with them: in dark they are the
- * near-black text printed on a bright accent fill, in light they are the
- * near-white text printed on a dark accent fill. Same role, opposite end.
+ * Derived from the Orthoc medical template
+ * (https://themewagon.github.io/orthoc/, css/style.css), adopted on request as
+ * this product's light mode. What was taken from it: the green hue family that
+ * gives the theme its character, its white card-on-tinted-page surface model,
+ * and its button pattern (solid accent fill, inverting to an outline on hover
+ * — see components/ui/button.tsx).
  *
- * Every pair below was measured, not estimated. Body text ≥ 4.5:1 and UI text
- * ≥ 3:1 against bg-app, bg-raised AND bg-hover, plus ink-on-accent for the
- * solid buttons. Lowest measured value in this palette is 3.99:1 (text-muted
- * on bg-hover, a 3:1 target). Re-measure before changing any value here.
+ * WHAT WAS NOT TAKEN, AND WHY. Orthoc's own values fail WCAG AA almost
+ * everywhere, because it is a marketing template and this is a clinical tool.
+ * Measured from its stylesheet:
+ *
+ *     white on #1fab89  (its main button fill)    2.90:1   needs 4.5
+ *     white on #62d2a2  (its secondary button)    1.87:1   needs 4.5
+ *     #1fab89 on white  (its button hover state)  2.90:1   needs 4.5
+ *     #777 muted text on white                    4.48:1   needs 4.5
+ *
+ * Six of its eight text pairs fail. So the HUE is Orthoc's and the LUMINANCE
+ * is this project's: #146F58 is Orthoc's green (hue 165°, the same saturation
+ * as #1fab89) darkened until every role it carries clears 4.5:1. Its own
+ * darker green #178066 was the first candidate and does pass at 4.87:1, but it
+ * drops to 4.20:1 once the accent is set as TEXT on the accent wash over
+ * bg-hover, which is a combination this UI actually renders. #146F58 holds
+ * 4.65:1 there, which is the tightest margin in the palette.
+ *
+ * Orthoc has no warning colour at all — it never needed one. Amber is kept and
+ * is not negotiable here: validation warnings and consistency violations are
+ * the two things on the report screen a doctor must not miss, and they cannot
+ * be rendered in the same hue as the primary action. It is warmed slightly
+ * (#8A5200) to sit with the green rather than against it.
+ *
+ * Orthoc defines three surfaces (#ffffff, #fefefe, #eeeeee). This app needs
+ * five and has no shadows, so separation has to come from the surfaces
+ * themselves; the ramp is extended by tinting toward Orthoc's own accent hue
+ * rather than by introducing a second, greyer family. `--bg-raised` stays the
+ * BRIGHTEST surface, as it was before — that is this app's existing structure
+ * (panels lift off the canvas) and matches Orthoc's white cards on a tinted
+ * page.
+ *
+ * Every pair below was measured, not estimated — 27 of them, all passing. Body
+ * text ≥ 4.5:1 and UI text ≥ 3:1 against bg-app, bg-raised AND bg-hover, plus
+ * ink-on-accent for the solid buttons and accent-on-wash for the outline ones.
+ * Lowest value in this palette is 4.03:1 (text-muted on bg-hover, a 3:1
+ * target); the lowest 4.5-target value is 4.65:1. Re-measure before changing
+ * any value here.
  * ──────────────────────────────────────────────────────────────────────────── */
 :root[data-theme="light"] {
   /* ==== THEME:START ==== */
   color-scheme: light;
 
-  /* ---- backgrounds — paper, with the raised surface as the brightest ---- */
-  --bg-page:         #E9EDF1;
-  --bg-app:          #F7F9FB;
+  /* ---- backgrounds — Orthoc's white card on a faintly green page. The
+     raised surface is the brightest, as in the previous light palette. ---- */
+  --bg-page:         #DCE8E3;
+  --bg-app:          #F2F8F5;
   --bg-raised:       #FFFFFF;
-  --bg-hover:        #EDF1F5;
-  --bg-hover-alt:    #E4EAEF;
+  --bg-hover:        #E7F1EC;
+  --bg-hover-alt:    #DAE9E2;
 
-  /* ---- borders ---- */
-  --border-hairline: #DDE3E9;
-  --border-strong:   #BFC9D2;
+  /* ---- borders — Orthoc's #eeeeee divider, tinted to the palette and taken
+     a step darker so it is still visible on a dense screen (its own measures
+     1.16:1 on white; these are 1.35:1 / 1.82:1, against the previous
+     palette's 1.23:1 / 1.59:1 — structure, never the sole carrier of
+     state). ---- */
+  --border-hairline: #D3E3DC;
+  --border-strong:   #AEC5BB;
 
-  /* ---- text — mirrors the dark ramp's ordering, including tertiary sitting
-     a step stronger than secondary (7.02:1 vs 8.08:1 on bg-app), which is how
-     the dark palette already ranks them. ---- */
-  --text-primary:    #0D141A;
-  --text-secondary:  #4A5763;
-  --text-tertiary:   #414E5A;
-  --text-muted:      #6B7883;
+  /* ---- text — #101010 is Orthoc's own heading/body black (19.03:1 on white).
+     The greys below it are green-tinted so the ramp belongs to one family,
+     and are darker than Orthoc's #777, which fails AA at 4.48:1. Tertiary
+     sits a step stronger than secondary, which is how the dark palette
+     already ranks them. ---- */
+  --text-primary:    #101010;
+  --text-secondary:  #48574F;
+  --text-tertiary:   #3F4E47;
+  --text-muted:      #69786F;
 
-  /* ---- accents: same two hues, darkened until they are legible on paper.
-     Washes and lines are re-derived from the new base, not carried over —
-     a 12% tint of bright cyan is invisible on white. ---- */
-  --accent-cyan:       #00696E;
-  --accent-cyan-ink:   #F0FDFE;
-  --accent-cyan-wash:  rgba(0, 105, 110, .10);
-  --accent-cyan-line:  rgba(0, 105, 110, .40);
+  /* ---- accents: Orthoc's green at a legible luminance, plus the amber the
+     template does not have. The wash is mixed from Orthoc's BRIGHT #1fab89
+     rather than from the darkened base — a tint wants the vivid colour, and
+     it sits behind text set in the darker one. ---- */
+  --accent-cyan:       #146F58;
+  --accent-cyan-ink:   #FFFFFF;
+  --accent-cyan-wash:  rgba(31, 171, 137, .14);
+  --accent-cyan-line:  rgba(20, 111, 88, .42);
 
-  --accent-amber:      #7A4E00;
+  --accent-amber:      #8A5200;
   --accent-amber-ink:  #FFF8EC;
-  --accent-amber-wash: rgba(122, 78, 0, .09);
-  --accent-amber-line: rgba(122, 78, 0, .38);
+  --accent-amber-wash: rgba(138, 82, 0, .10);
+  --accent-amber-line: rgba(138, 82, 0, .38);
 
   /* ---- ownership texture — dark strokes on a light surface, the inverse of
      the dark theme's light-on-dark hatch. ---- */
-  --hatch: rgba(13, 20, 26, .07);
+  --hatch: rgba(16, 16, 16, .07);
   /* ==== THEME:END ==== */
 }
 
