@@ -13900,3 +13900,142 @@ only in component tests, because staging them would have meant writing rows no
 generation run produced.
 
 **COMPLETE**
+
+---
+
+## Light Mode Re-derived from the Orthoc Template — Hue Adopted, Luminance Rejected — 2026-09-23 — COMPLETE
+
+### Context
+
+Light mode was asked to become the Orthoc medical template
+(https://themewagon.github.io/orthoc/), matching its colours and its buttons.
+
+Orthoc is a Bootstrap marketing template for a clinic website. Its stylesheet
+was downloaded and its palette extracted rather than eyeballed from the page:
+nine colours, of which three carry the design — `#1fab89` (primary green),
+`#62d2a2` (a lighter green) and `#178066` (a dark green used for the doctor
+section and footer) — plus `#ffffff`, `#fefefe`, `#eeeeee`, `#101010` and
+`#777`.
+
+Its button rule is consistent across every button it ships:
+
+```css
+.department_section .btn-box a       { background-color:#62d2a2; color:#ffffff;
+                                       border:1px solid #62d2a2; border-radius:5px }
+.department_section .btn-box a:hover { background-color:transparent; color:#62d2a2 }
+```
+
+A solid accent fill that drops to an outline on hover, with the border present
+at rest so nothing resizes under the pointer.
+
+### Implementation & Validation
+
+**The finding that shaped everything: Orthoc does not pass.** Measured from its
+own values, against the 4.5:1 this project enforces for body text:
+
+| pair | ratio | needs |
+|---|---|---|
+| white on `#1fab89` — its main button fill | **2.90:1** | 4.5 |
+| white on `#62d2a2` — its secondary button | **1.87:1** | 4.5 |
+| `#1fab89` on white — its button hover state | **2.90:1** | 4.5 |
+| `#777` muted text on white | **4.48:1** | 4.5 |
+| white on `#178066` — its dark section | 4.87:1 | 4.5 |
+| `#101010` body text on white | 19.03:1 | 4.5 |
+
+Six of eight fail. That is unremarkable for a marketing template and
+disqualifying for this one: the report screen renders validation warnings and
+consistency violations that a doctor must not miss, and this project's light
+palette is documented as measured rather than estimated.
+
+**So the hue was adopted and the luminance was not.** `#1fab89` decomposes to
+hue 165°, saturation 0.69. Holding both and sweeping lightness gives the first
+AA-clearing value at L=0.30. Orthoc's own `#178066` was the natural candidate
+and does pass at 4.87:1 — but that is white-on-fill. The accent is also
+rendered as *text on the accent wash* (the outline button, the IMPRESSION
+chip), and over `bg-hover` that combination drops `#178066` to **4.20:1**.
+`#146F58` — the same hue and saturation, one step darker — holds **4.65:1**
+there, which became the tightest margin in the palette.
+
+**Amber is the one thing that could not come from Orthoc, because Orthoc has
+none.** It ships no warning colour; it never needed one. Amber is kept and
+warmed to `#8A5200` to sit with the green. This is not a stylistic call: the
+validation block and the `violations` consistency state cannot share a hue with
+the primary action, or the two things on the screen that mean "stop" would look
+like the thing that means "go".
+
+**Surfaces had to be extended, and that is stated rather than hidden.** Orthoc
+defines three (`#ffffff`, `#fefefe`, `#eeeeee`). This app needs five and has no
+shadows, so separation must come from the surfaces themselves. The ramp is
+extended by tinting toward Orthoc's own accent hue rather than by introducing a
+second, greyer family. `--bg-raised` stays the brightest surface — that is this
+app's existing structure and also matches Orthoc's white cards on a tinted page.
+
+**27 pairs measured, all passing.** Body text and both accents against
+`bg-app`, `bg-raised` and `bg-hover`; accent-on-wash for the outline buttons;
+ink-on-accent for the solid ones. Lowest 4.5-target value **4.65:1**; lowest
+overall **4.03:1** against a 3:1 target. For comparison the previous light
+palette's lowest was 3.99:1, so this is not a relaxation.
+
+One bar was checked and then *withdrawn* rather than met: borders were briefly
+held to 3:1 and failed at 1.82:1 — until the existing palette was measured on
+the same pair and came in at **1.59:1**. Borders are structure here, never the
+sole carrier of state, and this project has never held them to a contrast
+target. The new values are stronger than the old ones; the 3:1 bar was an
+invention of the moment, not a requirement, and treating it as one would have
+been a fabricated regression.
+
+**Buttons.** `primary` and `danger` now follow Orthoc's rule exactly: solid
+fill, border of the same accent at rest, fill dropped on hover leaving accent
+text in an outline. `secondary` starts where primary lands and fills in on
+hover — Orthoc has no secondary button to copy, since every button it ships is
+the solid one, so this is the complement rather than a borrowed style, and it
+keeps "one primary per view" visually true. `ghost` stays neutral for actions
+that are not offers.
+
+Radius was **not** changed. Orthoc uses 5px, `--r-field` is 8px, and radius is
+theme-invariant in this system — matching it would restyle dark mode for a
+3px difference nobody asked to change.
+
+The design gate caught one real thing during the work: the Orthoc CSS rules
+were first quoted verbatim into `button.tsx`'s docstring, and `hex-literal`
+failed the build on three counts. That gate does not exempt comments, unlike
+the `forbidden-word-confidence` rule which does. It is right: hex lives in
+`tokens.css` and nowhere else, so the quotation moved there and the component
+docstring describes the pattern in tokens.
+
+**Validation (real execution).** `check:design` 0 violations with palette
+parity holding at 21 themed tokens in both blocks, `check:i18n` 391 keys, `tsc`
+and `eslint` clean, suite **90 passed**. Ten screenshots re-captured from the
+running app in both themes against a disposable copy of `dev.db`. Dark mode is
+visually unchanged. No backend file was modified.
+
+### How to Write This in Your Thesis
+
+This is the cleanest example in the project of **adopting a design without
+adopting its defects**, and it is worth writing as a method rather than as a
+colour change.
+
+The method: take the template's *identity* — hue, surface model, interaction
+pattern — and re-derive its *values* against the accessibility bar the product
+is held to. State the measurement that forced the change (white on Orthoc's own
+button fill is 2.90:1 where 4.5:1 is required) so the reader sees that the
+deviation is evidence-driven and not taste. The detail worth keeping is that
+the obvious fix was not sufficient: Orthoc's own darker green passes as a
+button fill and still fails as text on its own wash, which is only discoverable
+by measuring the combination the UI actually renders rather than the one the
+template documents.
+
+The second point worth a sentence is what could not be borrowed at all. Orthoc
+has no warning colour because a clinic brochure has nothing to warn about. A
+report screen does, and the amber had to be retained and retuned. That is a
+concrete instance of the general claim this thesis makes about clinical UI:
+the safety-carrying parts of the interface are not interchangeable with the
+marketing parts, even when they sit on the same page.
+
+Finally, the withdrawn border bar is worth one line in any discussion of how
+the contrast claims were produced. A target was applied, failed, and was then
+checked against the incumbent palette — which failed it harder. Reporting that
+as a regression would have been false. Measuring the thing you are replacing,
+not just the thing you are proposing, is what keeps a contrast claim honest.
+
+**COMPLETE**
