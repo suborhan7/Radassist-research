@@ -124,6 +124,12 @@ const config: Config = {
       // extra size and leading a screenful of continuous prose needs.
       answer:      ["17px", { lineHeight: "32px", fontWeight: "500" }],
       "findings-bn": ["16px", { lineHeight: "34px", fontWeight: "400" }],
+      // The one body size for continuous reading, shared by the report column
+      // and the evidence panel so the two stop being set differently. 16px is
+      // well clear of the 11px floor (§6.3); 1.6 is the leading asked for and
+      // is what `findings`' 30px hard value (1.875) is replaced by, so the
+      // measure is expressed as a ratio and scales if the size ever changes.
+      "body-read": ["16px", { lineHeight: "1.6" }],
       prose:   ["15px", { lineHeight: "1.65" }],
       base:    ["15px", { lineHeight: "1.5" }],
       sm:      ["14px", { lineHeight: "1.5" }],

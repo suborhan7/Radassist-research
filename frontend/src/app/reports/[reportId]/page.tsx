@@ -34,6 +34,10 @@ import { FinalizePreview } from "@/components/report/finalize-preview";
 import { ReportDiffView } from "@/components/report/report-diff-view";
 import { REPORT_CONTENT_FIELDS as CONTENT_FIELDS } from "@/components/report/report-document-view";
 import { REPORT_FIELD_LABEL_KEY } from "@/components/report/report-document-view";
+import { FullReportDisclosure } from "@/components/report/full-report-disclosure";
+import { ConsistencyState } from "@/components/report/consistency-state";
+import { usePersistedToggle } from "@/lib/use-persisted-toggle";
+import { shouldForceFullReport, fullReportForcedReasonKey } from "@/lib/full-report-rules";
 import { computeReportDiff, editableRecordFrom } from "@/lib/report-diff";
 import type { paths } from "@/lib/generated/api";
 
@@ -63,6 +67,37 @@ export const EDITABLE_REPORT_FIELDS = [
 export type EditableReportField = (typeof EDITABLE_REPORT_FIELDS)[number];
 
 const EDITABLE_KEYS = new Set<ReportContentKey>(EDITABLE_REPORT_FIELDS);
+
+/**
+ * The summary-first split of the canonical 7-field document.
+ *
+ * SUMMARY_FIELDS are what a radiologist opening this screen must see without
+ * doing anything: the conclusion and what to do about it. They are rendered
+ * outside the disclosure and there is no state in which they are hidden.
+ *
+ * FULL_REPORT_FIELDS are the rest -- what the examination was, what the
+ * patient brought to it, how it was acquired, what was seen, and the fixed
+ * legal boilerplate. Context, consulted on purpose rather than read every
+ * time.
+ *
+ * Derived from CONTENT_FIELDS by partition rather than restated, so the
+ * canonical list stays the single source of the 7 fields and their order: a
+ * field added there lands in the full report automatically instead of
+ * silently appearing in neither half. The summary keys are the declaration;
+ * everything else follows.
+ */
+const SUMMARY_KEYS = ["impression", "recommendation"] as const satisfies readonly ReportContentKey[];
+const SUMMARY_KEY_SET = new Set<ReportContentKey>(SUMMARY_KEYS);
+
+const SUMMARY_FIELDS = CONTENT_FIELDS.filter((f) => SUMMARY_KEY_SET.has(f.key)).sort(
+  // Impression before recommendation: the finding, then what follows from it.
+  (a, b) => SUMMARY_KEYS.indexOf(a.key as (typeof SUMMARY_KEYS)[number]) -
+    SUMMARY_KEYS.indexOf(b.key as (typeof SUMMARY_KEYS)[number]),
+);
+const FULL_REPORT_FIELDS = CONTENT_FIELDS.filter((f) => !SUMMARY_KEY_SET.has(f.key));
+
+/** localStorage name (namespaced and scoped to the doctor by the hook). */
+const FULL_REPORT_PREF = "workspace.fullReport";
 
 /**
  * Radiologist Workspace (Phase 12 Step 5, restyled Phase 14 per
@@ -145,6 +180,12 @@ export default function ReportWorkspacePage() {
   const [showPreview, setShowPreview] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
   const [dirtyFields, setDirtyFields] = useState<Set<ReportContentKey>>(new Set());
+  // Which sections currently have their editor open. Separate from
+  // dirtyFields, which only fills once text actually changes -- the full
+  // report has to be held open from the moment an editor opens, otherwise a
+  // section could be mid-edit inside a collapsed disclosure.
+  const [editingFields, setEditingFields] = useState<Set<ReportContentKey>>(new Set());
+  const [printing, setPrinting] = useState(false);
 
   // Phase 19: only one section can be mid-regeneration/preview at a time --
   // regeneratingField tracks the pending LLM call, regenerationResult
@@ -206,6 +247,66 @@ export default function ReportWorkspacePage() {
       return next;
     });
   }, []);
+
+  const handleEditingChange = useCallback((key: ReportContentKey, editing: boolean) => {
+    setEditingFields((prev) => {
+      const next = new Set(prev);
+      if (editing) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
+
+  /**
+   * Printing counts as "the full report is open", because what the browser
+   * puts on paper must be the whole document -- a printout of a report with
+   * five sections silently missing is a clinical document that misrepresents
+   * itself.
+   *
+   * There is no in-app PDF view to hook instead: the Download PDF control on
+   * this screen is disabled and titled "out of scope for this thesis (frozen
+   * Phase 12 spec)". So the print path IS the print/PDF path here, and
+   * beforeprint/afterprint is what it exposes. matchMedia("print") is checked
+   * alongside it because Safari fires the media query but not the events.
+   */
+  useEffect(() => {
+    const before = () => setPrinting(true);
+    const after = () => setPrinting(false);
+    window.addEventListener("beforeprint", before);
+    window.addEventListener("afterprint", after);
+
+    const mql = window.matchMedia?.("print");
+    const onChange = (e: MediaQueryListEvent) => setPrinting(e.matches);
+    mql?.addEventListener?.("change", onChange);
+
+    return () => {
+      window.removeEventListener("beforeprint", before);
+      window.removeEventListener("afterprint", after);
+      mql?.removeEventListener?.("change", onChange);
+    };
+  }, []);
+
+  // Panel preferences, remembered per doctor in this browser only. Scoped to
+  // currentDoctorId so two doctors at one workstation do not inherit each
+  // other's layout; until that id arrives the hook stays on the default and
+  // touches no storage. Never sent to the backend -- see the hook's docstring.
+  const [fullReportChoice, setFullReportChoice] = usePersistedToggle(
+    currentDoctorId,
+    FULL_REPORT_PREF,
+    false, // default collapsed: the summary is the point of the screen
+  );
+  // The four states that hold the full report open -- see full-report-rules.ts
+  // for what each one protects. A regeneration counts as in flight both while
+  // the call is out and while its candidate is waiting on Accept/Discard.
+  const forceState = {
+    editing: editingFields.size > 0,
+    regenerating: regeneratingField !== null || regenerationResult !== null,
+    finalizing: showPreview,
+    printing,
+  };
+  const forceFullReport = shouldForceFullReport(forceState);
+  const fullReportOpen = fullReportChoice || forceFullReport;
+  const forcedReasonKey = fullReportForcedReasonKey(forceState);
 
   // beforeunload -- covers tab close/refresh/typed-URL navigation. This is
   // the one part of the guard the browser itself enforces; everything
@@ -317,6 +418,54 @@ export default function ReportWorkspacePage() {
   }
 
   const contextMeta = [patient?.patient_code, report.report_date].filter(Boolean).join(" · ");
+
+  /**
+   * One renderer for all seven sections, used by both the summary and the
+   * disclosure. Written once rather than twice: the summary's impression is
+   * the same editable, regeneratable section it has always been, and the only
+   * difference between the two groups is where they sit. Two copies of this
+   * JSX would be two places for the edit affordances to drift apart.
+   */
+  const renderSection = (key: ReportContentKey) => {
+    const isRegeneratable = EDITABLE_KEYS.has(key);
+    const activePreview =
+      isRegeneratable && regenerationResult?.field === key
+        ? computeReportDiff(editableRecordFrom(report.content), {
+            ...editableRecordFrom(report.content),
+            [key]: regenerationResult.candidate,
+          }).sections.find((section) => section.field === key) ?? null
+        : null;
+
+    return (
+      <EditableReportSection
+        key={key}
+        fieldKey={key as ReportFieldKey}
+        label={t(REPORT_FIELD_LABEL_KEY[key])}
+        value={report.content[key] ?? ""}
+        isEdited={report.content[key] !== report.ai_draft_content[key]}
+        canEdit={!!canEdit && EDITABLE_KEYS.has(key)}
+        saving={savingField === key}
+        onCommit={(next) => handleCommit(key, next)}
+        onDirtyChange={(dirty) => handleDirtyChange(key, dirty)}
+        onEditingChange={(editing) => handleEditingChange(key, editing)}
+        canRegenerate={isRegeneratable}
+        regenerating={regeneratingField === key}
+        regenerationPreview={activePreview}
+        regenerationContextIncomplete={
+          regenerationResult?.field === key && regenerationResult.contextIncomplete
+        }
+        regenerationError={regenerationErrorField === key ? regenerationError : null}
+        onRegenerate={isRegeneratable ? () => handleRegenerate(key as EditableReportField) : undefined}
+        onAcceptRegeneration={handleAcceptRegeneration}
+        onDiscardRegeneration={handleDiscardRegeneration}
+      />
+    );
+  };
+
+  const fullReportHint = t("workspace.fullReportHint", {
+    count: FULL_REPORT_FIELDS.length,
+    fields: FULL_REPORT_FIELDS.map(({ key }) => t(REPORT_FIELD_LABEL_KEY[key])).join(", "),
+  });
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-bg-app">
@@ -437,40 +586,13 @@ export default function ReportWorkspacePage() {
               </p>
             )}
 
-            <div className="flex flex-col">
-              {CONTENT_FIELDS.map(({ key }) => {
-                const isRegeneratable = EDITABLE_KEYS.has(key);
-                const activePreview =
-                  isRegeneratable && regenerationResult?.field === key
-                    ? computeReportDiff(editableRecordFrom(report.content), {
-                        ...editableRecordFrom(report.content),
-                        [key]: regenerationResult.candidate,
-                      }).sections.find((section) => section.field === key) ?? null
-                    : null;
-
-                return (
-                  <EditableReportSection
-                    key={key}
-                    fieldKey={key as ReportFieldKey}
-                    label={t(REPORT_FIELD_LABEL_KEY[key])}
-                    value={report.content[key] ?? ""}
-                    isEdited={report.content[key] !== report.ai_draft_content[key]}
-                    canEdit={!!canEdit && EDITABLE_KEYS.has(key)}
-                    saving={savingField === key}
-                    onCommit={(next) => handleCommit(key, next)}
-                    onDirtyChange={(dirty) => handleDirtyChange(key, dirty)}
-                    canRegenerate={isRegeneratable}
-                    regenerating={regeneratingField === key}
-                    regenerationPreview={activePreview}
-                    regenerationContextIncomplete={regenerationResult?.field === key && regenerationResult.contextIncomplete}
-                    regenerationError={regenerationErrorField === key ? regenerationError : null}
-                    onRegenerate={isRegeneratable ? () => handleRegenerate(key as EditableReportField) : undefined}
-                    onAcceptRegeneration={handleAcceptRegeneration}
-                    onDiscardRegeneration={handleDiscardRegeneration}
-                  />
-                );
-              })}
-            </div>
+            {/* ── SUMMARY ────────────────────────────────────────────────
+                Impression and recommendation, the validation warnings and the
+                consistency verdict. Nothing here is behind a control, in any
+                state: a doctor must not have to open anything to find out
+                that this report carries a warning, or to read its conclusion.
+                ───────────────────────────────────────────────────────────── */}
+            <div className="flex flex-col">{SUMMARY_FIELDS.map(({ key }) => renderSection(key))}</div>
 
             {actionError && (
               <div className="mt-16 rounded-field border border-amber-line bg-amber-wash px-14 py-12 text-sm text-amber">
@@ -479,7 +601,11 @@ export default function ReportWorkspacePage() {
             )}
 
             {/* Validation -- amber only when there is something to look at;
-                a clean pass stays quiet rather than inventing a success hue. */}
+                a clean pass stays quiet rather than inventing a success hue.
+                The clean state still renders: absence would be read as "no
+                problems" by a reader who cannot tell it from "not checked",
+                which is the same failure the consistency block below is
+                built to avoid. */}
             <div
               className={cn(
                 "mt-16 rounded-panel border p-14",
@@ -488,15 +614,39 @@ export default function ReportWorkspacePage() {
             >
               <h3 className="font-mono text-eyebrow uppercase text-text-tertiary">{t("workspace.validation")}</h3>
               {report.validation.is_clean ? (
-                <p className="mt-8 text-sm text-text-secondary">{t("workspace.noWarnings")}</p>
+                <p className="mt-8 text-body-read text-text-secondary">{t("workspace.noWarnings")}</p>
               ) : (
-                <ul className="mt-8 list-inside list-disc text-sm text-amber">
+                // list-outside + padding, not list-inside: with the body text
+                // now at 16px these warnings wrap, and list-inside returns the
+                // second line to the left margin so it reads as a new item.
+                <ul className="mt-8 flex list-outside list-disc flex-col gap-8 pl-18 text-body-read text-amber">
                   {report.validation.warnings.map((warning, i) => (
                     <li key={i}>{warning}</li>
                   ))}
                 </ul>
               )}
             </div>
+
+            {/* Phase 22 v1.2's consistency verdict -- four states, never
+                collapsible. `language` decides which not-run reason is true,
+                per frozen §3.4. */}
+            <div className="mt-16">
+              <ConsistencyState block={report.consistency} language={report.language} />
+            </div>
+
+            {/* ── FULL REPORT ────────────────────────────────────────────── */}
+            <FullReportDisclosure
+              id="full-report"
+              open={fullReportOpen}
+              forced={forceFullReport}
+              forcedReason={t(forcedReasonKey)}
+              hint={fullReportHint}
+              onToggle={() => setFullReportChoice(!fullReportChoice)}
+            >
+              <div className="flex flex-col">
+                {FULL_REPORT_FIELDS.map(({ key }) => renderSection(key))}
+              </div>
+            </FullReportDisclosure>
 
             {/* Actions */}
             <div className="mt-16 flex flex-wrap gap-12">

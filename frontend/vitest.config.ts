@@ -20,6 +20,20 @@ export default defineConfig({
     },
   },
   test: {
+    /**
+     * Node stays the DEFAULT on purpose, and jsdom is opted into per file with
+     * a `@vitest-environment jsdom` docblock (see the component tests under
+     * src/components/report/).
+     *
+     * Switching the whole project to jsdom would have been one line, but it
+     * would put every existing pure test -- report-diff, the label-list
+     * snapshot, the consistency and disclosure rules -- inside a simulated
+     * browser they have no use for. That is slower on every run, and it also
+     * changes what those tests prove: code that accidentally reached for
+     * `window` would start passing in a suite whose point is that it does not
+     * need one. The component tests need a DOM and say so; nothing else
+     * acquires one by default.
+     */
     environment: "node",
   },
 });

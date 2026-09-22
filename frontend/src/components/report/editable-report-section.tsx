@@ -53,6 +53,7 @@ export function EditableReportSection({
   saving,
   onCommit,
   onDirtyChange,
+  onEditingChange,
   canRegenerate = false,
   regenerating = false,
   regenerationPreview = null,
@@ -71,6 +72,15 @@ export function EditableReportSection({
   saving: boolean;
   onCommit: (next: string) => void;
   onDirtyChange?: (dirty: boolean) => void;
+  /**
+   * Fires when this section opens or closes its editor, whether or not the
+   * text changed. Distinct from onDirtyChange, which only fires once the
+   * draft actually differs -- the workspace's "keep the full report open
+   * while editing" rule has to hold from the moment the editor opens, not
+   * from the first keystroke, or the section being edited could be inside a
+   * disclosure that is still closed.
+   */
+  onEditingChange?: (editing: boolean) => void;
   canRegenerate?: boolean;
   regenerating?: boolean;
   regenerationPreview?: SectionDiff | null;
@@ -94,6 +104,11 @@ export function EditableReportSection({
     onDirtyChange?.(editing && draft !== value);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing, draft, value]);
+
+  useEffect(() => {
+    onEditingChange?.(editing);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
 
   function startEditing() {
     if (!canEdit || saving) return;

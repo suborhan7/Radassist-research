@@ -274,6 +274,32 @@ export const en: Dict = {
   "workspace.altNoteEmph": "It is not an exclusion.",
   "workspace.altNotePost": "Only labels present are reported, not a complete positive or negative taxonomy.",
 
+  // ── summary-first report panel ────────────────────────────────────────────
+  "workspace.showFullReport": "Show full report",
+  "workspace.hideFullReport": "Hide full report",
+  "workspace.fullReportHint": (p) => `${Number(p.count)} more sections · ${String(p.fields)}`,
+  "workspace.fullReportHeldEdit": "Held open while you are editing",
+  "workspace.fullReportHeldRegen": "Held open while a section is being regenerated",
+  "workspace.fullReportHeldFinalize": "Held open while you finalize",
+  "workspace.fullReportHeldPrint": "Held open for printing",
+
+  // ── consistency verdict (Phase 22 v1.2, frozen §3.4 + amendment 01) ───────
+  // "not_run" must never read as a pass, and must not share wording with
+  // "clean" -- the frozen UI contract, not a copy preference.
+  "consistency.title": "Consistency",
+  "consistency.notRun": "Checks not run",
+  "consistency.partial": "Partially checked",
+  "consistency.clean": "Checks passed",
+  "consistency.violations": "Issues found",
+  "consistency.notRunBengali": "Consistency checks are not available for Bengali reports.",
+  "consistency.notRunPreV12": "No consistency checks were recorded for this report.",
+  "consistency.partialDetail": (p) =>
+    `Ran: ${String(p.ran) || "none"}. Not run: ${String(p.missing) || "none"}.`,
+  "consistency.cleanDetail": (p) => `Every applicable check ran: ${String(p.ran)}.`,
+  "consistency.check.temporal": "temporal",
+  "consistency.check.transplant": "transplant",
+  "consistency.check.contradiction": "contradiction",
+
   // ── comparison workspace ──────────────────────────────────────────────────
   "compare.errCurrent": "Failed to load current report.",
   "compare.errNoPatient": "This report has no patient linked, so it cannot be compared against patient history.",

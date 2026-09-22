@@ -268,6 +268,33 @@ export const bn: Dict = {
   "workspace.altNoteEmph": "এটি কোনো বর্জন নয়।",
   "workspace.altNotePost": "কেবল উপস্থিত লেবেলগুলি রিপোর্ট করা হয়, একটি সম্পূর্ণ ইতিবাচক বা নেতিবাচক শ্রেণিবিন্যাস নয়।",
 
+  // ── summary-first report panel ────────────────────────────────────────────
+  "workspace.showFullReport": "সম্পূর্ণ রিপোর্ট দেখান",
+  "workspace.hideFullReport": "সম্পূর্ণ রিপোর্ট লুকান",
+  "workspace.fullReportHint": (p) => `আরও ${Number(p.count)}টি বিভাগ · ${String(p.fields)}`,
+  "workspace.fullReportHeldEdit": "আপনি সম্পাদনা করার সময় খোলা রাখা হয়েছে",
+  "workspace.fullReportHeldRegen": "একটি বিভাগ পুনরায় তৈরি হওয়ার সময় খোলা রাখা হয়েছে",
+  "workspace.fullReportHeldFinalize": "চূড়ান্ত করার সময় খোলা রাখা হয়েছে",
+  "workspace.fullReportHeldPrint": "মুদ্রণের জন্য খোলা রাখা হয়েছে",
+
+  // ── consistency verdict (Phase 22 v1.2, frozen §3.4 + amendment 01) ───────
+  // Every Bengali report is "not_run" by construction -- all three detectors
+  // are English-only (frozen §3.4). These strings are the ones a Bengali
+  // reader actually sees for this block, so the reason must be plain.
+  "consistency.title": "সামঞ্জস্য",
+  "consistency.notRun": "পরীক্ষা চালানো হয়নি",
+  "consistency.partial": "আংশিকভাবে পরীক্ষিত",
+  "consistency.clean": "পরীক্ষায় উত্তীর্ণ",
+  "consistency.violations": "সমস্যা পাওয়া গেছে",
+  "consistency.notRunBengali": "বাংলা রিপোর্টের জন্য সামঞ্জস্য পরীক্ষা উপলব্ধ নয়।",
+  "consistency.notRunPreV12": "এই রিপোর্টের জন্য কোনো সামঞ্জস্য পরীক্ষা রেকর্ড করা হয়নি।",
+  "consistency.partialDetail": (p) =>
+    `চালানো হয়েছে: ${String(p.ran) || "কোনোটিই নয়"}। চালানো হয়নি: ${String(p.missing) || "কোনোটিই নয়"}।`,
+  "consistency.cleanDetail": (p) => `প্রযোজ্য প্রতিটি পরীক্ষা চালানো হয়েছে: ${String(p.ran)}।`,
+  "consistency.check.temporal": "সময়গত",
+  "consistency.check.transplant": "প্রতিস্থাপন",
+  "consistency.check.contradiction": "স্ববিরোধিতা",
+
   // ── comparison workspace ──────────────────────────────────────────────────
   "compare.errCurrent": "বর্তমান রিপোর্ট লোড করা যায়নি।",
   "compare.errNoPatient": "এই রিপোর্টের সাথে কোনো রোগী সংযুক্ত নেই, তাই এটি রোগীর ইতিহাসের সাথে তুলনা করা যাবে না।",
