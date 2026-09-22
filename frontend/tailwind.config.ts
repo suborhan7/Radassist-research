@@ -163,8 +163,15 @@ const config: Config = {
       width: {
         rail: "var(--rail)",
         "report-col": "var(--report-col)",
+        "report-col-wide": "var(--report-col-wide)",
         "evidence-panel": "var(--evidence-panel)",
+        "evidence-rail": "var(--evidence-rail)",
         "explain-panel": "var(--explain-panel)",
+      },
+      maxWidth: {
+        // The measure for continuous report prose. A token rather than the
+        // arbitrary max-w-[68ch] that was written into two components.
+        "report-prose": "var(--report-prose)",
       },
       height: {
         "header-bar": "var(--header-bar)",

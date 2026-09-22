@@ -194,13 +194,13 @@ export function EditableReportSection({
           rows={3}
           className={cn(
             "mt-8 w-full resize-y rounded-field border border-cyan-line bg-bg-raised p-12",
-            "text-findings text-text-primary",
+            "text-body-read text-text-primary",
           )}
         />
       ) : (
         <p
           className={cn(
-            "mt-12 max-w-[68ch] whitespace-pre-wrap",
+            "mt-12 max-w-report-prose whitespace-pre-wrap",
             // Same rule the finalize preview uses. Committed text must not dim
             // relative to the identical text mid-edit.
             reportBodyClass(fieldKey, Boolean(value)),

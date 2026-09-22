@@ -35,6 +35,7 @@ import { ReportDiffView } from "@/components/report/report-diff-view";
 import { REPORT_CONTENT_FIELDS as CONTENT_FIELDS } from "@/components/report/report-document-view";
 import { REPORT_FIELD_LABEL_KEY } from "@/components/report/report-document-view";
 import { FullReportDisclosure } from "@/components/report/full-report-disclosure";
+import { EvidenceSidebar, type EvidenceTab } from "@/components/report/evidence-sidebar";
 import { ConsistencyState } from "@/components/report/consistency-state";
 import { usePersistedToggle } from "@/lib/use-persisted-toggle";
 import { shouldForceFullReport, fullReportForcedReasonKey } from "@/lib/full-report-rules";
@@ -96,8 +97,9 @@ const SUMMARY_FIELDS = CONTENT_FIELDS.filter((f) => SUMMARY_KEY_SET.has(f.key)).
 );
 const FULL_REPORT_FIELDS = CONTENT_FIELDS.filter((f) => !SUMMARY_KEY_SET.has(f.key));
 
-/** localStorage name (namespaced and scoped to the doctor by the hook). */
+/** localStorage names (namespaced and scoped to the doctor by the hook). */
 const FULL_REPORT_PREF = "workspace.fullReport";
+const EVIDENCE_PREF = "workspace.evidenceCollapsed";
 
 /**
  * Radiologist Workspace (Phase 12 Step 5, restyled Phase 14 per
@@ -171,7 +173,7 @@ export default function ReportWorkspacePage() {
   const [report, setReport] = useState<ReportDetailResponse | null>(null);
   const [patient, setPatient] = useState<PatientResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [railTab, setRailTab] = useState<"evidence" | "agreement" | "alternatives">("evidence");
+  const [railTab, setRailTab] = useState<EvidenceTab>("evidence");
   const [currentDoctorId, setCurrentDoctorId] = useState<string | null>(null);
 
   const [savingField, setSavingField] = useState<ReportContentKey | null>(null);
@@ -295,6 +297,12 @@ export default function ReportWorkspacePage() {
     FULL_REPORT_PREF,
     false, // default collapsed: the summary is the point of the screen
   );
+  const [evidenceCollapsed, setEvidenceCollapsed] = usePersistedToggle(
+    currentDoctorId,
+    EVIDENCE_PREF,
+    false, // default expanded for a first-time reader
+  );
+
   // The four states that hold the full report open -- see full-report-rules.ts
   // for what each one protects. A regeneration counts as in flight both while
   // the call is out and while its candidate is waiting on Accept/Discard.
@@ -557,8 +565,18 @@ export default function ReportWorkspacePage() {
           </span>
         </div>
 
-        {/* Report as document */}
-        <section className="flex w-report-col flex-none flex-col border-l border-hairline">
+        {/* Report as document. Widens into the space the evidence panel frees
+            when it docks -- but only to --report-col-wide, because the prose
+            inside is capped at --report-prose (74ch). Past that the extra
+            width would be gutter, and body text stretched edge to edge is
+            harder to read, not easier. Film (flex-1) takes the remainder. */}
+        <section
+          className={cn(
+            "flex flex-none flex-col border-l border-hairline",
+            "transition-[width] duration-panel ease-panel",
+            evidenceCollapsed ? "w-report-col-wide" : "w-report-col",
+          )}
+        >
           <div className="flex-1 overflow-auto px-26 pb-26 pt-24">
             <div className="mb-20 flex items-baseline gap-12">
               <span className="font-mono text-eyebrow uppercase text-text-tertiary">
@@ -680,40 +698,30 @@ export default function ReportWorkspacePage() {
           </div>
         </section>
 
-        {/* Evidence rail -- quieter surface, mono-heavy */}
-        <aside className="flex w-evidence-panel flex-none flex-col border-l border-hairline bg-bg-raised">
-          <div className="flex flex-none border-b border-hairline">
-            {(["evidence", "agreement", "alternatives"] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setRailTab(tab)}
-                className={cn(
-                  "flex-1 border-b-2 px-12 py-12 text-sm font-medium capitalize transition-colors duration-hover",
-                  railTab === tab
-                    ? "border-cyan text-cyan"
-                    : "border-transparent text-text-tertiary hover:text-text-primary",
-                )}
-              >
-                {t(`workspace.tab${tab.charAt(0).toUpperCase()}${tab.slice(1)}`)}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex-1 overflow-auto p-20">
+        {/* Evidence sidebar -- quieter surface, docks to a rail rather than
+            disappearing. Its prose is now set in the same body token as the
+            report column (see report-typography.ts). */}
+        <EvidenceSidebar
+          id="evidence-panel"
+          collapsed={evidenceCollapsed}
+          onToggle={() => setEvidenceCollapsed(!evidenceCollapsed)}
+          activeTab={railTab}
+          onTabChange={setRailTab}
+        >
             {railTab === "evidence" && (
               <div className="flex flex-col gap-16">
                 <h3 className="font-mono text-eyebrow uppercase text-text-tertiary">
                   {t("workspace.archiveCases", { count: report.retrieved_cases.length })}
                 </h3>
                 {report.retrieved_cases.map((c) => (
-                  <div key={c.rank} className="rounded-panel border border-hairline p-14 text-sm">
+                  <div key={c.rank} className="rounded-panel border border-hairline p-14">
                     <div className="flex items-center gap-8">
                       <span className="font-mono text-mono-meta text-cyan">#{c.rank}</span>
                       <span className="font-medium text-text-primary">{c.primary_label}</span>
                     </div>
                     <SimilarityBar value={c.similarity * 100} className="mt-12" />
-                    <p className="mt-12 text-text-secondary">{c.findings}</p>
-                    <p className="mt-3 text-text-secondary">{c.impression}</p>
+                    <p className="mt-12 max-w-report-prose text-body-read text-text-secondary">{c.findings}</p>
+                    <p className="mt-8 max-w-report-prose text-body-read text-text-secondary">{c.impression}</p>
                   </div>
                 ))}
               </div>
@@ -753,22 +761,21 @@ export default function ReportWorkspacePage() {
                       key={label}
                       className="flex items-center justify-between border-b border-hairline py-12"
                     >
-                      <dt className="text-sm text-text-secondary">{label}</dt>
-                      <dd className="font-mono text-sm text-text-primary">
+                      <dt className="text-body-read text-text-secondary">{label}</dt>
+                      <dd className="font-mono text-body-read text-text-primary">
                         {t("workspace.countOfK", { count, k })}
                       </dd>
                     </div>
                   ))}
                 </dl>
-                <p className="text-sm leading-relaxed text-text-secondary">
+                <p className="max-w-report-prose text-body-read text-text-secondary">
                   {t("workspace.altNotePre")}{" "}
                   <span className="text-text-primary">{t("workspace.altNoteEmph")}</span>{" "}
                   {t("workspace.altNotePost")}
                 </p>
               </div>
             )}
-          </div>
-        </aside>
+        </EvidenceSidebar>
       </div>
 
       {showPreview && diffSummary && (

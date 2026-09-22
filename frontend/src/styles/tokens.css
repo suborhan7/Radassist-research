@@ -167,6 +167,23 @@
   --evidence-panel: 340px; /* workspace right panel */
   --explain-panel:  330px; /* explainability right panel */
 
+  /* ---- collapsible workspace panels.
+     --evidence-rail is the width the evidence panel docks to rather than
+     disappearing at: wide enough for one icon-only reopen control plus its
+     focus ring, which is the whole point — a panel that collapses to 0 is a
+     panel a reader cannot get back without knowing it was ever there.
+     --report-col-wide is what the report column grows to with the panel
+     docked. It is NOT report-col plus the full 292px freed, because the prose
+     inside is capped at --report-prose; past that the extra width becomes
+     gutter, not line. Film (flex-1) absorbs the remainder. ---- */
+  --evidence-rail:   48px;
+  --report-col-wide: 700px;
+
+  /* ---- measure — the comfortable line length for continuous report prose,
+     used by the report column AND the evidence panel so both read the same.
+     Replaces a hardcoded max-w-[68ch] that existed in two components. ---- */
+  --report-prose:   74ch;
+
   /* ---- motion: two keyframes only (rr-flow, rr-blink), defined where
      they're consumed. Timings/easing kept from the prior theme —
      unspecified by the new design, not contradicted by it. ---- */

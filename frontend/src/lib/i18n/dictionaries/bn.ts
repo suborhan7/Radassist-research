@@ -277,6 +277,10 @@ export const bn: Dict = {
   "workspace.fullReportHeldFinalize": "চূড়ান্ত করার সময় খোলা রাখা হয়েছে",
   "workspace.fullReportHeldPrint": "মুদ্রণের জন্য খোলা রাখা হয়েছে",
 
+  // ── evidence sidebar ──────────────────────────────────────────────────────
+  "workspace.collapseEvidence": "প্রমাণ প্যানেল সংকুচিত করুন",
+  "workspace.expandEvidence": "প্রমাণ প্যানেল দেখান",
+
   // ── consistency verdict (Phase 22 v1.2, frozen §3.4 + amendment 01) ───────
   // Every Bengali report is "not_run" by construction -- all three detectors
   // are English-only (frozen §3.4). These strings are the ones a Bengali

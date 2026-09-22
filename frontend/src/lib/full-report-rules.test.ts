@@ -104,9 +104,8 @@ describe("the workspace keeps conclusions and alerts out of the disclosure", () 
     expect(page).toContain("fullReportChoice || forceFullReport");
   });
 
-  it("scopes the panel preference to the signed-in doctor", () => {
-    // Scoped, so two doctors at one workstation do not inherit each other's
-    // layout -- the whole reason the hook takes a scope at all.
+  it("scopes both panel preferences to the signed-in doctor", () => {
     expect(page).toContain("usePersistedToggle(\n    currentDoctorId,\n    FULL_REPORT_PREF,");
+    expect(page).toContain("usePersistedToggle(\n    currentDoctorId,\n    EVIDENCE_PREF,");
   });
 });

@@ -19,10 +19,19 @@
  *                                                              token, defined for exactly
  *                                                              this and never wired up)
  *   disclaimer   fixed legal boilerplate   14px, secondary     (quiet on purpose)
- *   everything   clinical prose            16px/30, primary
+ *   everything   clinical prose            16px/1.6, primary   (the `body-read` token)
  *
  * Absent values are muted rather than set as body text, so "Not provided" does
  * not read as content the report actually contains.
+ *
+ * The body token is now `body-read` (16px/1.6) rather than `findings`
+ * (16px/30px). Two things changed and they are separate: the leading is
+ * expressed as a ratio, so it survives a size change instead of silently
+ * becoming a different measure; and the SAME token now sets the evidence
+ * panel's prose. The panel used to be set in `text-sm` (14px/1.5) -- a whole
+ * column of clinical text one step smaller and tighter than the identical
+ * kind of text beside it, for no reason a reader could see. One rule for
+ * continuous prose, wherever it is rendered, is the point of this file.
  */
 export type ReportFieldKey =
   | "examination"
@@ -38,13 +47,28 @@ const BODY_BY_FIELD: Partial<Record<ReportFieldKey, string>> = {
   disclaimer: "text-sm leading-relaxed text-text-secondary",
 };
 
-const DEFAULT_BODY = "text-findings text-text-primary";
+const DEFAULT_BODY = "text-body-read text-text-primary";
 
 /** Class for a field's value. `present=false` mutes it (an absent field). */
 export function reportBodyClass(field: ReportFieldKey | undefined, present: boolean): string {
-  if (!present) return "text-findings text-text-muted";
+  if (!present) return "text-body-read text-text-muted";
   return (field && BODY_BY_FIELD[field]) ?? DEFAULT_BODY;
 }
+
+/**
+ * The measure for continuous report prose, and the one place it is stated.
+ *
+ * It was `max-w-[68ch]`, written out by hand in ReportDocumentView and again
+ * in EditableReportSection -- an arbitrary Tailwind value in a codebase whose
+ * design gate exists to stop exactly that. Now a token (--report-prose, 74ch),
+ * which also puts the line length inside the 70–80 character band that makes
+ * a long clinical document readable, and applies to the evidence panel too so
+ * the two columns are set to one rule rather than two.
+ *
+ * This is what keeps the report column from stretching its body text edge to
+ * edge when the evidence panel docks and the column grows.
+ */
+export const REPORT_PROSE_MEASURE = "max-w-report-prose";
 
 /**
  * Section heading, as a boxed and filled label rather than a bare line of small

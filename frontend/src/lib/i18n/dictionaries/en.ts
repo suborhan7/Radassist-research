@@ -283,6 +283,10 @@ export const en: Dict = {
   "workspace.fullReportHeldFinalize": "Held open while you finalize",
   "workspace.fullReportHeldPrint": "Held open for printing",
 
+  // ── evidence sidebar ──────────────────────────────────────────────────────
+  "workspace.collapseEvidence": "Collapse evidence panel",
+  "workspace.expandEvidence": "Show evidence panel",
+
   // ── consistency verdict (Phase 22 v1.2, frozen §3.4 + amendment 01) ───────
   // "not_run" must never read as a pass, and must not share wording with
   // "clean" -- the frozen UI contract, not a copy preference.
