@@ -2,6 +2,7 @@
 
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
+import { BUTTON_BASE, SIZE, VARIANT } from "@/components/ui/button";
 
 /**
  * The "Full report" disclosure: everything the summary does not already show.
@@ -75,13 +76,19 @@ export function FullReportDisclosure({
           aria-expanded={open}
           aria-controls={id}
           className={cn(
-            // flex-none + nowrap: the hint beside it is long, and without this
-            // the control itself is what flex shrinks, breaking "Show full
-            // report" across two lines.
-            "flex flex-none items-center gap-8 whitespace-nowrap rounded-control px-10 py-8",
-            "text-sm font-medium",
-            "text-text-secondary transition-colors duration-hover hover:text-cyan",
-            "disabled:cursor-default disabled:text-text-tertiary disabled:hover:text-text-tertiary",
+            // A real button, drawn with the product's own button primitives
+            // rather than as a line of text with a chevron. It was the latter
+            // and read as a label -- the one control that decides whether five
+            // sections of a clinical document are on screen has to look like
+            // something you press. `secondary` is the bordered, quiet variant:
+            // visibly a button, without competing with Finalize, which is the
+            // single primary action on this screen.
+            BUTTON_BASE,
+            VARIANT.secondary,
+            SIZE.sm,
+            // flex-none: the hint beside it is long, and without this the
+            // control is what flex shrinks, breaking the label onto two lines.
+            "flex-none",
           )}
         >
           <span aria-hidden="true" className="font-mono text-mono-meta">

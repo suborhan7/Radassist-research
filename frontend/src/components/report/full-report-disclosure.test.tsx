@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect, useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { LanguageProvider } from "@/lib/i18n";
+import { BUTTON_BASE, SIZE, VARIANT } from "@/components/ui/button";
 import { usePersistedToggle } from "@/lib/use-persisted-toggle";
 import { shouldForceFullReport, type FullReportForceState } from "@/lib/full-report-rules";
 import { FullReportDisclosure } from "./full-report-disclosure";
@@ -115,6 +116,22 @@ describe("Full report disclosure — default and toggle", () => {
     // fireEvent.click test while failing a keyboard user.
     expect(toggle().tagName).toBe("BUTTON");
     expect(toggle().getAttribute("disabled")).toBeNull();
+  });
+
+  it("is drawn with the product's button primitives, so it LOOKS pressable", () => {
+    render(<Harness />);
+    // Being a <button> is not the same as looking like one. This control
+    // shipped as a line of text with a chevron and was reported as not
+    // reading as a button at all -- the tag assertion above passed the whole
+    // time. So the affordance is asserted separately: it carries the shared
+    // button base and the bordered `secondary` variant, rather than ad-hoc
+    // classes that can drift back into looking like a label.
+    const cls = toggle().className;
+    for (const fragment of [BUTTON_BASE, VARIANT.secondary, SIZE.sm]) {
+      for (const token of fragment.split(/\s+/).filter(Boolean)) {
+        expect(cls, `expected the toggle to carry "${token}"`).toContain(token);
+      }
+    }
   });
 });
 

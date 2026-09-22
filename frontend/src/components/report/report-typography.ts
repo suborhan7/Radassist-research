@@ -88,5 +88,16 @@ export function reportLabelClass(field?: ReportFieldKey): string {
     "inline-flex items-center rounded-chip border px-10 py-5 font-mono text-section-label uppercase";
   return field === "impression"
     ? `${base} border-cyan-line bg-cyan-wash text-cyan`
-    : `${base} border-strong bg-bg-hover text-text-secondary`;
+    : // Primary text on the raised fill, not secondary on the flat one. The
+      // chips were set in `text-text-secondary` -- the same mid-grey as
+      // captions -- over `bg-bg-hover`, so on a dark surface they were quieter
+      // than the body text they introduce, which is backwards for the thing
+      // whose only job is to say where you are. A reader reported them as not
+      // catching the eye. Raising the text and the fill together is what makes
+      // the chip read as a chip; raising either alone does not.
+      //
+      // IMPRESSION still keeps cyan to itself. The differentiator between "the
+      // conclusion" and "a section" stays hue, never weight -- so making the
+      // other six legible does not dilute the one marked section.
+      `${base} border-strong bg-bg-hover-alt text-text-primary`;
 }

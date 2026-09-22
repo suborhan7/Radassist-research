@@ -132,7 +132,13 @@ export function EditableReportSection({
 
   return (
     <div
-      className="group relative py-3 first:pt-0 last:pb-0"
+      // Sections are separated blocks, not a continuous run of paragraphs.
+      // This was `py-3` -- 3px -- so seven sections ran together and the eye
+      // had nothing to jump between. The rhythm here is the one
+      // ReportDocumentView already uses for the same seven fields
+      // (border-b/py-16, first and last unset), so the workspace and the
+      // read-only document finally look like the same document.
+      className="group relative border-b border-hairline py-16 first:pt-0 last:border-0 last:pb-0"
       tabIndex={canEdit && !editing ? 0 : undefined}
       onKeyDown={(e) => {
         if (!editing && canEdit && (e.key === "Enter" || e.key === " ")) {

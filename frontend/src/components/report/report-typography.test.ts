@@ -84,6 +84,32 @@ describe("the evidence panel is set like the report column", () => {
   });
 });
 
+describe("section headings are the structure, and read like it", () => {
+  it("sets non-impression labels in primary text on the raised fill", () => {
+    // They were text-secondary on bg-hover -- quieter than the body text they
+    // introduce, which is backwards for a heading, and was reported as not
+    // catching the eye.
+    const label = src("./report-typography.ts");
+    expect(label).toContain("border-strong bg-bg-hover-alt text-text-primary");
+    expect(label).not.toContain("border-strong bg-bg-hover text-text-secondary");
+  });
+
+  it("still gives IMPRESSION the cyan treatment alone", () => {
+    // Raising the other six must not dilute the one marked section: the
+    // differentiator stays hue, never weight.
+    expect(src("./report-typography.ts")).toContain("border-cyan-line bg-cyan-wash text-cyan");
+  });
+
+  it("separates workspace sections on the same rhythm as the read-only document", () => {
+    // EditableReportSection used py-3 -- 3px -- so seven sections ran together
+    // while ReportDocumentView rendered the same seven fields as separated
+    // blocks. One document, one rhythm.
+    const rhythm = "border-b border-hairline py-16 first:pt-0 last:border-0 last:pb-0";
+    expect(src("./editable-report-section.tsx")).toContain(rhythm);
+    expect(src("./report-document-view.tsx")).toContain(rhythm);
+  });
+});
+
 describe("the type floor is respected", () => {
   it("defines the shared body token at 16px, well clear of the 11px floor", () => {
     const config = src("../../../tailwind.config.ts");
