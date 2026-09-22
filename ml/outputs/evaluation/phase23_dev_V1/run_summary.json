@@ -1,0 +1,22 @@
+{
+  "variant": "V1",
+  "status": "ok",
+  "config": {
+    "model": "qwen2.5:14b",
+    "checklist": "False",
+    "threshold": "0.5",
+    "temp_seed": "0.0 42"
+  },
+  "n_total": 150,
+  "n_completed": 150,
+  "n_failed": 0,
+  "structural_failure_rate": 0.0,
+  "latency": {
+    "mean": 7.37,
+    "p50": 7.33,
+    "p95": 8.76,
+    "max": 10.76,
+    "n": 150
+  },
+  "failure_reasons": []
+}

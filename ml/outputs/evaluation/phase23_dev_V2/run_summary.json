@@ -1,0 +1,22 @@
+{
+  "variant": "V2",
+  "status": "ok",
+  "config": {
+    "model": "llama3:8b",
+    "checklist": "True",
+    "threshold": "0.5",
+    "temp_seed": "0.0 42"
+  },
+  "n_total": 150,
+  "n_completed": 150,
+  "n_failed": 0,
+  "structural_failure_rate": 0.0,
+  "latency": {
+    "mean": 4.58,
+    "p50": 4.55,
+    "p95": 4.98,
+    "max": 7.76,
+    "n": 150
+  },
+  "failure_reasons": []
+}
