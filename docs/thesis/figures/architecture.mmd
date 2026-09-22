@@ -1,0 +1,90 @@
+%% RadAssist-RAG -- system architecture as IMPLEMENTED at phase22-v1.2 (46d2632f).
+%% Order follows backend/app/api/retrieval.py, generation.py and
+%% backend/app/services/report_generation_service.py. Nothing aspirational is drawn.
+%% Decision D1 invariant: admit -> mask -> embed -> gate -> retrieve.
+flowchart TB
+
+  subgraph OFFLINE["OFFLINE -- ml/ research pipeline (run once, then frozen)"]
+    direction TB
+    IU[("IU / Indiana CXR<br/>indiana_reports.csv 3,851 studies<br/>indiana_projections.csv 7,466 rows")]
+    BSI["build_study_index.py<br/>study-level, label_mapping.yaml"]
+    CLN["clean_reports.py + phi_masking.py<br/>EasyOCR, solid black boxes"]
+    SPL["make_splits.py<br/>near-dup clusters are the atomic unit<br/>train 2,563 / val 609 / test 595"]
+    MM[("master_metadata.csv<br/>3,851 studies -- single source of truth")]
+    EMB["generate_embeddings.py<br/>BiomedCLIP 512-dim, 3,609 cached"]
+    IDX[("ChromaDB iu_cxr_biomedclip_v1_train<br/>2,462 documents (TRAIN SPLIT ONLY)")]
+    IU --> BSI --> CLN --> SPL --> MM --> EMB --> IDX
+  end
+
+  subgraph SHARED["shared/ -- the one ml and backend exception"]
+    EMBED["biomedclip_embedder.py<br/>FROZEN production embedder<br/>offline KB and live query use ONE implementation"]
+  end
+
+  subgraph FE["frontend/ -- Next.js 16.2.10 / React 19.2.4"]
+    UPL["upload page<br/>/patients/[id]/upload"]
+    RPT["report page<br/>/reports/[id]"]
+    CMP["compare /reports/[id]/compare"]
+    EXP["explain /reports/[id]/explain"]
+  end
+
+  subgraph BE["backend/ -- FastAPI 0.139.0, clean architecture, DI via lifespan"]
+    direction TB
+
+    subgraph R["POST /retrieve"]
+      direction TB
+      ADM["1 ImageAdmissionService<br/>extension, size, dimensions, pixel count<br/>DR-4: declared projection, frontal only"]
+      MSK["2 PHIMasker<br/>EasyOCR + solid black boxes (never blur/inpaint)<br/>cap 8% of image area"]
+      EMBQ["3 BiomedCLIPAdapter -> shared embedder"]
+      GATE["4 ModalityGateService<br/>MODALITY_THRESHOLD 0.60<br/>softmax over BiomedCLIP's learned logit scale"]
+      PROJ["5 DR-5 projection band on top-1 similarity<br/>PROJECTION_REJECT_THRESHOLD 0.8500<br/>RETRIEVAL_FLOOR 0.8906 (0/300 ever triggered)"]
+      RET["6 ChromaVectorStore + SimilaritySearchPolicy<br/>top_k = 5"]
+      VOTE["7 LabelVotingService -> VotedLabel(label, weight, agreement)"]
+      CTX["8 ContextBuilder<br/>near-dup collapse, evidence partition<br/>EVIDENCE_MODE = FULL (Phase 21 arm C)"]
+      ADM --> MSK --> EMBQ --> GATE --> PROJ --> RET --> VOTE --> CTX
+    end
+
+    subgraph G["POST /generate-report"]
+      direction TB
+      PB["9 PromptBuilder<br/>v1.2 grounding changes (i)-(iv)<br/>+338 prompt tokens, max 1,574 / 4,096"]
+      LLM["10 LLMOrchestrator -> OllamaClient<br/>llama3:8b Q4_0, temp 0.0, seed 42, num_ctx 4096"]
+      SV["11 StructuralValidator<br/>7 marker fields, content retry x2"]
+      SEM["12 ResponseValidator.validate_semantic<br/>ADVISORY -- gates nothing (Phase 8 Decision 1)"]
+      CONS["13 ReportConsistencyService (v1.2)<br/>temporal | transplant | contradiction<br/>OBSERVATIONAL: records, never blocks"]
+      CHX["CheXbert labeler<br/>14 heads, 452 MiB, ~8 ms/report"]
+      DISC["14 render_disclaimer<br/>server-authored, replaces model text"]
+      FMT["15 ReportFormatter"]
+      PB --> LLM --> SV --> SEM --> CONS --> DISC --> FMT
+      CONS -.->|contradiction check| CHX
+    end
+
+    subgraph POST["Post-generation endpoints"]
+      EDIT["PATCH /reports/[id]<br/>ReportEditService<br/>ai_draft_content vs final_content"]
+      REGEN["POST /reports/[id]/regenerate-section<br/>5 editable fields"]
+      EXPL["POST /reports/[id]/explain<br/>ExplainabilityService"]
+      COMPS["POST /comparisons<br/>DeterministicComparator"]
+      FIN["PATCH /reports/[id]/finalize<br/>AI_DRAFT -> DOCTOR_EDITED -> FINAL"]
+    end
+
+    DB[("SQLite dev.db<br/>doctors, patients, retrieval_sessions,<br/>retrieved_evidence, reports, report_audit_log,<br/>upload_rejection_log, comparisons<br/>Alembic 1.18.5")]
+  end
+
+  UPL -->|multipart image| ADM
+  CTX --> PB
+  FMT --> RPT
+  RPT --> EDIT
+  RPT --> REGEN
+  RPT --> EXP --> EXPL
+  RPT --> CMP --> COMPS
+  RPT --> FIN
+
+  EMBQ -.->|imports| EMBED
+  EMB -.->|imports| EMBED
+  RET -.->|queries| IDX
+  CTX -.->|neighbour metadata| MM
+
+  R --> DB
+  G --> DB
+  POST --> DB
+
+  classDef obs stroke-dasharray: 5 5
+  class CONS,SEM obs
