@@ -13633,3 +13633,259 @@ test uids in this phase. The test pool is exactly as Phase 22 left it.
 > what the reserved-test design was intended to make possible.
 
 **COMPLETE**
+
+---
+
+## Workspace UI — Summary-First Report Panel, Collapsible Evidence Sidebar, and the Consistency Verdict's First Rendering — 2026-09-23 — COMPLETE
+
+### Context
+
+Three problems on the radiologist workspace, all information architecture
+rather than styling.
+
+**The conclusion was buried.** The middle column rendered all seven report
+sections as one flat document in canonical order — Examination, Clinical
+History, Technique, Findings, Impression, Recommendation, Disclaimer. The
+impression, which is what a radiologist opens the screen to read, sat fifth,
+and the validation warnings sat below all seven. On a report with a long
+findings section the warnings were below the fold.
+
+**The evidence panel could not be put away.** It was a fixed 340px column. A
+doctor reading a long report had no way to give that space to the report.
+
+**The panel was set differently from the report beside it.** Report body was
+`findings` (16px, 30px hard leading); the evidence panel was `text-sm` (14px,
+1.5). Two columns of the same kind of clinical prose, one a step smaller and
+tighter than the other, for no reason a reader could see.
+
+Separately, and found while reading the schema rather than reported: **the
+frontend rendered no consistency state at all.** `ReportDetailResponse` has
+carried a `consistency` block since Phase 22 Gate A Step A3, with a binding UI
+requirement attached — [`fix_architecture_v1.2_FROZEN.md`](../phase22/fix_architecture_v1.2_FROZEN.md) §3.4:
+
+> For any report with `language != "en"`, the UI **must display "consistency
+> checks not run"** and **must never display a clean or passed state** for the
+> consistency block. [...] The two must not share a component, an icon, or a
+> colour. A Bengali report showing a green tick — or showing nothing at all,
+> which a clinician reads as *nothing wrong* — would convert an acknowledged
+> coverage gap into an affirmative false assurance, which is worse than the gap
+> itself.
+
+The frontend was in the failure mode that sentence names explicitly: it showed
+nothing at all. §3.4 lists the UI requirement as "part of v1.2's definition of
+done", so this was an open item, not an enhancement.
+
+One correction worth recording, because it changed a decision mid-task: the
+generated `api.d.ts` was believed stale and was regenerated from the running
+backend. It came back **byte-identical** — the types already carried
+`ConsistencyResponse`. The gap was never in the types; it was that nothing
+rendered them. No backend file was touched, and `git diff` on the generated
+file is empty.
+
+### Implementation & Validation
+
+**Summary-first split.** `SUMMARY_FIELDS` (impression, recommendation) and
+`FULL_REPORT_FIELDS` (the other five) are derived by **partitioning**
+`REPORT_CONTENT_FIELDS`, not restated — a field added to the canonical list
+lands in the full report automatically instead of silently appearing in
+neither half. Impression, recommendation, the validation block and the
+consistency verdict render outside the disclosure, in every state. A test
+asserts their source position precedes `<FullReportDisclosure`, because this is
+a layout invariant and layout invariants rot quietly.
+
+**Four states hold the disclosure open** and disable its control: a section
+being edited, a regeneration in flight *or* awaiting Accept/Discard, the
+finalize preview, and printing. The rule lives in `lib/full-report-rules.ts`
+with a test per case rather than as `a || b || c || d` inside JSX — a safety
+rule that exists only inside a render is one nobody can point at. Note what
+"print/PDF view" had to mean here: there is **no in-app PDF view** (the
+Download PDF control is disabled and titled "out of scope for this thesis"), so
+the browser print path *is* that path, hooked via `beforeprint`/`afterprint`
+plus `matchMedia("print")` for Safari, which fires the query but not the events.
+
+`EditableReportSection` gained `onEditingChange`. The page previously knew only
+which fields were **dirty**, which is too late — a section is in edit mode
+before its first keystroke, and the section being edited may be inside the
+disclosure.
+
+**Nothing unmounts on collapse.** Children stay rendered; the wrapper gets
+`hidden`. That is `display:none`, so the content leaves the accessibility tree
+*and* the tab order, which a `max-height: 0` collapse would not do — a screen
+reader user would hear five sections the sighted reader was told are closed.
+It also means no effect re-runs. Both halves are asserted: a `fetch` spy **and**
+a mount counter across repeated toggles, because a fetch spy alone would pass
+even while the subtree was being destroyed and rebuilt.
+
+**The evidence sidebar docks rather than disappears.** Collapsed it is a 48px
+rail that still carries a labelled reopen control — a panel that collapses to
+zero width is one an accidental click makes unreachable, since the control that
+would reopen it went with it. The active tab survives because the panel is
+never unmounted, so there is no restore step that could pick the wrong one.
+Width animates over `--t-panel`, which `tokens.css` already collapses to 1ms
+under `prefers-reduced-motion`, so the preference is honoured by the rule that
+already honours it everywhere rather than by a second conditional.
+
+The report column widens 530px → `--report-col-wide` (700px) when the panel
+docks, **and stops there**: prose is capped at `--report-prose` (74ch), so past
+that the extra width is gutter, not line.
+
+**Typography unified.** One `body-read` token (16px/1.6) for continuous prose
+in both columns, replacing `findings`' hardcoded 30px leading with a ratio and
+removing the panel's `text-sm`. The measure became a token too — `max-w-[68ch]`
+had been hand-written in two components, in a codebase whose design gate exists
+to stop exactly that. Mono stays where it marks identifiers and metrics in both
+columns: shared role vocabulary, not a panel override. The 11px floor
+(design_specification.md §6.3, enforced by `check-design-tokens.mjs`'s
+`below-type-floor` rule) is untouched and nothing new goes near it.
+
+**The consistency verdict, four ways.** Four separate renderers, deliberately
+**not** one component with a tone map — the shape every other status surface in
+this app uses (`AgreementBadge`, `RetrievalSupportNotice`) and the right shape
+there, because those are points on one scale. This is not. §3.4 makes the
+separation a safety requirement, and a shared body parameterised by a lookup is
+exactly the structure in which a later edit to the default branch silently
+gives `not_run` the pass treatment.
+
+| status | colour | glyph | fill | reads as |
+|---|---|---|---|---|
+| `violations` | amber | `!` | amber wash | the actionable state |
+| `partial` | text-primary | `◐` | hover fill, strong border | incomplete — **not** a pass |
+| `clean` | cyan | `✓` | none, cyan line | the **only** pass |
+| `not_run` | text-tertiary | `–` | none, hairline | nothing was assessed |
+
+`partial` sits with `not_run`, not with `clean`, per
+[`amendment_01_consistency_status.md`](../phase22/amendment_01_consistency_status.md) §2(a):
+"`partial` must not be rendered as a pass. It is closer to `not_run` than to
+`clean` in what it licenses a reader to conclude." Its label and tooltip name
+both halves — "Ran: temporal, contradiction. Not run: transplant." — because
+§2(d) is explicit that *which* checks are missing is the information a reader
+needs, and a status word cannot carry it. Bengali reports read not run with the
+reason stated; pre-v1.2 rows read not run with a different reason, because
+those are different facts. **Nothing is re-derived client-side**: `status` is
+read as the backend computed it, the same S9 discipline `RetrievalSupportNotice`
+follows, and a missing or unrecognised block resolves to `not_run` — mirroring
+the backend's own default, so an omission under-claims rather than over-claims.
+
+**Persistence.** Both panel choices are remembered per doctor under
+`rr:v1:<doctorId>:<name>` in localStorage, never sent to the backend. This is
+the app's first localStorage use: theme and language use cookies because the
+*server* layout reads them before first paint, which does not apply to a panel
+state nothing server-rendered depends on. Built on `useSyncExternalStore` — the
+obvious default-then-adopt `useState`/`useEffect` shape is a cascading render
+that React's own `react-hooks/set-state-in-effect` rule rejects, and this gets
+the server snapshot (no hydration mismatch) and cross-tab sync right by
+construction.
+
+**Two real defects found by the work, not by inspection:**
+
+1. The first draft of the persistence hook let an in-memory fallback shadow
+   localStorage when localStorage was readable but empty, so a value from
+   earlier in the session outlived the storage it mirrored. Caught by two
+   failing tests. `null` from a readable localStorage means "this doctor has
+   expressed no preference", which is a fact, not a failed lookup; memory is
+   now consulted only when storage is unusable or unscoped.
+2. `not_run` was first styled with `text-muted`, which measures **3.83:1**
+   (dark) and **4.29:1** (light) against `bg-app`. `tokens.css` documents
+   text-muted as a **3:1-target** token for de-emphasised UI text; a verdict a
+   clinician acts on is body text and owes 4.5:1. Changed to text-tertiary.
+
+**Contrast, measured** — washes composited over their real backdrop, not quoted
+against the token colour:
+
+| surface | dark | light | target |
+|---|---|---|---|
+| body text, report column | 16.49:1 | 17.58:1 | 4.5 |
+| body text, evidence panel | 15.80:1 | 18.55:1 | 4.5 |
+| evidence prose (secondary) | 6.49:1 | 7.41:1 | 4.5 |
+| **validation warning text** | **9.17:1** | **5.98:1** | 4.5 |
+| consistency `violations` | 9.17:1 | 5.98:1 | 4.5 |
+| consistency `clean` | 12.26:1 | 6.13:1 | 4.5 |
+| consistency `partial` | 15.12:1 | 16.34:1 | 4.5 |
+| consistency `not_run` | 7.57:1 | 8.08:1 | 4.5 |
+
+All clear AA in both themes.
+
+**Validation (real execution).** Frontend suite **7 → 86 passed**, 8 files.
+`tsc` clean, `eslint` clean, `check:design` 0 violations (77 files),
+`check:i18n` parity at **391 keys** in en/bn. Backend suite **534 passed**,
+identical to the pre-change baseline on the same tree, and `git status` on
+`backend/` is empty — no backend file was modified, and the regenerated
+`api.d.ts` diff is empty.
+
+jsdom and `@testing-library/react` were added as **devDependencies only**;
+`dependencies` is untouched. Vitest's default environment stays `node` and the
+DOM is opted into per test file with a `@vitest-environment jsdom` docblock, so
+the pre-existing pure tests run exactly as before — switching the project to
+jsdom would have been one line, but it would also let code that accidentally
+reached for `window` start passing in a suite whose point is that it does not
+need one.
+
+Ten screenshots under [`docs/thesis/figures/ui/`](../thesis/figures/ui/),
+captured from the **running app** at a viewport pinned to 1440×900 with
+`Emulation.setDeviceMetricsOverride` (window sizing leaves a dead band under a
+100dvh layout), both themes, via `e2e/ui-shots.mjs` reusing the existing
+Edge/CDP harness. The backend ran against a **disposable copy** of `dev.db`;
+the override was proved before use (the registered doctor landed in the copy,
+`dev.db`'s doctor count stayed 64) and `dev.db`'s four table counts were
+confirmed unchanged afterwards.
+
+Two real reports were chosen rather than constructed, and between them they
+cover two of the four consistency states live: one pre-v1.2 row with NULL
+`checks_run` renders **not run**, and one with `["temporal", "contradiction"]`
+— a strict subset of the applicable set — renders **partial**. The remaining
+two states (`clean`, `violations`) have no such row in this database and are
+covered by component test instead, rather than staged by writing rows no run
+produced.
+
+**Scope boundary, stated rather than left implicit.** `AgreementBadge`,
+`RetrievalSupportNotice` and `SimilarityBar` render inside the evidence panel
+but are shared with other screens and keep their own type register; they were
+not restyled. The typography requirement was to remove *panel-specific*
+overrides, and those components are not panel-specific.
+
+Commits: `b526e122`, `35cd7e5a`.
+
+### How to Write This in Your Thesis
+
+Three things here are worth a thesis paragraph each, and one is worth more than
+the other two.
+
+**The disclosure is bounded by what it may hide, not by what fits.** The rule
+is that a disclosure may cover *context* and never *conclusions or alerts* —
+impression, recommendation, validation warnings and the consistency verdict are
+outside it in every state, including states where the user asked for it closed.
+The interesting part is that four separate conditions force it open and disable
+its own control, each protecting something the reader is working on or about to
+sign. Write it as an argument about which information a clinical UI is
+permitted to make optional, and note that the invariant is enforced by test
+rather than by convention.
+
+**The consistency block is a worked example of a safety requirement surviving
+the trip from architecture into pixels.** §3.4 did not say "show the status" —
+it said not-run and clean must not share a component, an icon, or a colour, and
+gave the reason: a clinician reads absence as "nothing wrong", so showing
+nothing converts an acknowledged coverage gap into a false assurance. The
+implementation honours that literally, with four separate renderers rather than
+one parameterised by a tone map, because the parameterised version is the one
+in which a later edit quietly gives not-run the pass treatment. This is a good
+place to state plainly that **every English report currently reads `partial`**
+(amendment 01 §2(e)) and that this is correct rather than unfortunate — the
+transplant check genuinely is not operational until Gate B, and the previous
+behaviour asserted a completeness the system does not have. A dashboard that
+looks worse after an amendment is a dashboard that has started telling the
+truth.
+
+**Accessibility and contrast were measured, and measuring found a defect.** The
+not-run verdict was initially styled with a token documented for a 3:1 target
+and measured 3.83:1 — below AA for body text. State the ratios for both themes
+(the table above), and state that the washes were composited over their real
+backdrops, because quoting a translucent token's own colour measures a surface
+nobody sees. The honest framing is that the AA claim is only as good as what
+was actually computed, and that computing it changed the design.
+
+Also worth one sentence in Limitations: the four consistency states are not all
+reachable from this database. Two were photographed from real rows; two exist
+only in component tests, because staging them would have meant writing rows no
+generation run produced.
+
+**COMPLETE**
