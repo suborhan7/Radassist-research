@@ -13826,8 +13826,19 @@ captured from the **running app** at a viewport pinned to 1440×900 with
 100dvh layout), both themes, via `e2e/ui-shots.mjs` reusing the existing
 Edge/CDP harness. The backend ran against a **disposable copy** of `dev.db`;
 the override was proved before use (the registered doctor landed in the copy,
-`dev.db`'s doctor count stayed 64) and `dev.db`'s four table counts were
-confirmed unchanged afterwards.
+`dev.db`'s doctor count stayed 64), and the copy was deleted afterwards.
+
+The isolation evidence is stated as properties that stay checkable rather than
+as a row count, because a row count is not a safe assertion here: a developer
+running the app normally writes to `dev.db` from their own backend on :8000
+while this work is going on, and that is exactly what happened during the
+second capture (one patient, session and report appeared, created by a real
+account through the ordinary UI, not by this harness). What is checkable and
+did hold: **no `shots-%` doctor exists in `dev.db`** (the screenshot doctor was
+created only in the copy), the **doctor count is still 64**, and the two
+reports used for the figures still carry their **original session ownership**
+in `dev.db` -- the `doctor_id` reassignment that made them viewable was applied
+to the copy alone.
 
 Two real reports were chosen rather than constructed, and between them they
 cover two of the four consistency states live: one pre-v1.2 row with NULL
