@@ -272,6 +272,34 @@ DEFAULT_CONSISTENCY_TEMPORAL_TERMS = (
 # retry; this value is read for the first time at Gate C.
 DEFAULT_CONSISTENCY_RETRY_COUNT = 1
 
+# --- Phase 23 (accuracy experiment, pre-registered in docs/phase23/plan.md
+# --- §3.2): the label checklist prompt block. Variants V2 and V3.
+#
+# DEFAULT OFF. With this False the generation prompt is BYTE-IDENTICAL to
+# v1.2's, which is what makes V0/V1 a real baseline rather than an
+# approximation of one -- asserted by
+# test_prompt_label_checklist.py::test_flag_off_is_byte_identical_to_v1_2.
+#
+# What the block does, when on: for each voted label at or above the
+# agreement threshold, it requires the model to either affirm the label
+# against THIS image's evidence or negate it explicitly, and it requires
+# every abnormality stated in FINDINGS to appear in IMPRESSION.
+#
+# The second half targets a defect v1.2 measured and fixed nothing about:
+# 27 of 477 v1.2 reports state an abnormality in findings and call the study
+# normal in the impression (docs/phase22/gate_a_results.md §6.3). No v1.2
+# check covers it, and it is an accuracy defect, so it is in scope here.
+#
+# THRESHOLD COUPLING, FLAGGED BEFORE USE. The checklist reads
+# DISCLAIMER_AGREEMENT_THRESHOLD, whose own comment below says the two 0.5
+# thresholds in this codebase "answer different questions ... and nothing
+# requires them to move together". This makes the checklist a THIRD consumer
+# of that value. Accepted deliberately for the experiment (the value is 0.5
+# either way, so no result turns on it) and recorded as a pre-registered
+# follow-up: if V2 or V3 wins, a dedicated CHECKLIST_AGREEMENT_THRESHOLD is
+# split out BEFORE the winner becomes production config. See plan.md §3.2.
+DEFAULT_PROMPT_LABEL_CHECKLIST_ENABLED = False
+
 DEFAULT_MODALITY_PROMPTS_POSITIVE = (
     "a chest radiograph"
     "|a chest X-ray"
@@ -463,6 +491,7 @@ class Settings(BaseSettings):
 
     CONSISTENCY_TEMPORAL_TERMS: str = DEFAULT_CONSISTENCY_TEMPORAL_TERMS
     CONSISTENCY_RETRY_COUNT: int = DEFAULT_CONSISTENCY_RETRY_COUNT
+    PROMPT_LABEL_CHECKLIST_ENABLED: bool = DEFAULT_PROMPT_LABEL_CHECKLIST_ENABLED
     ACCEPTED_PROJECTIONS: str = DEFAULT_ACCEPTED_PROJECTIONS
     DECLARED_PROJECTION_VALUES: str = DEFAULT_DECLARED_PROJECTION_VALUES
 

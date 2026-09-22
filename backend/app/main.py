@@ -180,7 +180,13 @@ async def lifespan(app: FastAPI):
     # once. A prompt that forbade a different set of words from the one
     # the checker looks for would make the measured temporal rate a
     # statement about two unrelated vocabularies.
-    prompt_builder = PromptBuilder(temporal_terms=settings.consistency_temporal_terms)
+    # Phase 23 (docs/phase23/plan.md §3.2): the checklist flag defaults False,
+    # so with no env override this construction is exactly v1.2's.
+    prompt_builder = PromptBuilder(
+        temporal_terms=settings.consistency_temporal_terms,
+        label_checklist=settings.PROMPT_LABEL_CHECKLIST_ENABLED,
+        checklist_agreement_threshold=settings.DISCLAIMER_AGREEMENT_THRESHOLD,
+    )
     app.state.prompt_builder = prompt_builder
     app.state.llm_orchestrator = LLMOrchestrator(
         prompt_builder=prompt_builder,

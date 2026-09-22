@@ -128,7 +128,12 @@ _LANGUAGE_INSTRUCTIONS = {
 class PromptBuilder:
     """Satisfies domain.interfaces.IPromptBuilder (partially -- see module docstring)."""
 
-    def __init__(self, temporal_terms: Sequence[str] = ()) -> None:
+    def __init__(
+        self,
+        temporal_terms: Sequence[str] = (),
+        label_checklist: bool = False,
+        checklist_agreement_threshold: float = 0.5,
+    ) -> None:
         """Phase 22 v1.2 frozen §2(iii).
 
         `temporal_terms` is THE SAME list ReportConsistencyService matches on,
@@ -146,6 +151,20 @@ class PromptBuilder:
         """
         self._temporal_terms = tuple(temporal_terms)
 
+        # Phase 23 (docs/phase23/plan.md §3.2), variants V2 and V3.
+        #
+        # Injected, not read from settings here, for the same reason
+        # temporal_terms is: this module states prompt TEXT and must not
+        # acquire its own opinion about configuration. The lifespan passes
+        # settings.PROMPT_LABEL_CHECKLIST_ENABLED and
+        # settings.DISCLAIMER_AGREEMENT_THRESHOLD.
+        #
+        # Both default to the v1.2 behaviour, so every existing
+        # PromptBuilder() construction -- including every test written before
+        # Phase 23 -- produces a byte-identical prompt.
+        self._label_checklist = bool(label_checklist)
+        self._checklist_agreement_threshold = float(checklist_agreement_threshold)
+
     def build_generation_prompt(self, context: ClinicalContext, language: str) -> str:
         sections = [
             self._role_instruction(),
@@ -160,8 +179,18 @@ class PromptBuilder:
             self._section_support_instruction(),
             self._no_prior_study_instruction(),
             self._confidence_instruction(context.voted_labels),
-            self._evidence_section(context.evidence_summary),
         ]
+        # Phase 23 (plan.md §3.2). Placed AFTER the confidence instruction --
+        # which already introduces the top label and what `agreement` means --
+        # and BEFORE the evidence block, matching v1.2's ordering rule that
+        # rules to apply to the evidence are stated before the evidence is
+        # read. Appended conditionally rather than emitted as an empty string,
+        # so with the flag off the joined prompt has no extra separator and is
+        # byte-identical to v1.2's.
+        checklist = self._label_checklist_instruction(context.voted_labels)
+        if checklist:
+            sections.append(checklist)
+        sections.append(self._evidence_section(context.evidence_summary))
         # Phase 9 fix: questionnaire_answers/clinical_notes existed on
         # ClinicalContext since Phase 5 but were never serialized into the
         # prompt -- silently accepted, never read. Both sections are
@@ -497,6 +526,79 @@ class PromptBuilder:
             "anatomical location and laterality used in FINDINGS. Do not move a "
             "finding to a different lobe, zone, or side than FINDINGS gave it."
         )
+
+    def _label_checklist_instruction(
+        self, voted_labels: tuple[VotedLabel, ...]
+    ) -> str:
+        """Phase 23 (docs/phase23/plan.md §3.2), variants V2 and V3.
+
+        Returns "" whenever the block must not appear, so the caller can skip
+        appending it entirely and keep the flag-off prompt byte-identical to
+        v1.2's.
+
+        WHY A CHECKLIST AT ALL. v1.2's _confidence_instruction names only the
+        TOP voted label and says to hedge if its agreement is low. Every other
+        retrieved label reaches the model as prose inside the neighbour
+        evidence block, where v1.2 correctly tells it not to copy anything --
+        so the labels arrive attached to an instruction to disregard the text
+        carrying them. Nothing asks the model to adjudicate them against this
+        patient's image one by one. This does.
+
+        FORCED DISPOSITION, NOT SUGGESTION. Each listed label must be either
+        affirmed against this image's evidence or explicitly negated. A label
+        the model simply ignores is the failure mode being targeted: Phase 22
+        measured 56 of 477 impressions carrying no positive finding while the
+        reference had one, identically in v1.1 and v1.2
+        (gate_a_results.md §6.2), which is silence, not disagreement.
+
+        THE FINDINGS->IMPRESSION CLAUSE is the second half. v1.2's
+        _section_support_instruction already forbids the impression asserting
+        what findings did not; it does not require the converse. 27 of 477
+        v1.2 reports state an abnormality in findings and call the study
+        normal in the impression (gate_a_results.md §6.3). That direction is
+        unconstrained in v1.2 and is constrained here.
+
+        WORDING CONSTRAINT. Not one word of this block may collide with the
+        held-out temporal synonym list -- "remains", "still", "residual",
+        "no change", "as before", "continues to" and the rest. A held-out term
+        reaching any prompt burns the list and invalidates the temporal
+        endpoint. Asserted by test_prompt_heldout_containment.py with the
+        checklist both off AND on.
+        """
+        if not self._label_checklist:
+            return ""
+        selected = [
+            v for v in voted_labels
+            if v.agreement >= self._checklist_agreement_threshold
+        ]
+        if not selected:
+            # No label cleared the threshold. Emitting a checklist with an
+            # empty list would be an instruction to adjudicate nothing, which
+            # reads as noise; v1.2's behaviour is correct here.
+            return ""
+        lines = [
+            "LABEL CHECKLIST:",
+            "Retrieval-based voting proposed the candidate labels below. Each one "
+            "is a HYPOTHESIS drawn from other patients' cases, not an observation "
+            "of this patient's radiograph.",
+            "For EVERY label listed, your report must do one of two things, and "
+            "must not do neither:",
+            "  (1) state the finding as present, ONLY where this patient's image "
+            "evidence supports it; or",
+            "  (2) state explicitly that it is absent or not demonstrated.",
+            "Do not omit a listed label without dispositioning it. Do not state a "
+            "label as present merely because it appears below.",
+            "Candidate labels:",
+        ]
+        for v in selected:
+            lines.append(f"  - {v.label} (agreement {v.agreement:.2f})")
+        lines.append(
+            "IMPRESSION COVERAGE: every abnormality your FINDINGS states must also "
+            "appear in your IMPRESSION. If FINDINGS describes an abnormality, "
+            "IMPRESSION must not describe the study as normal or free of acute "
+            "abnormality."
+        )
+        return "\n".join(lines)
 
     def _no_prior_study_instruction(self) -> str:
         """Phase 22 v1.2 frozen §2(iii).
