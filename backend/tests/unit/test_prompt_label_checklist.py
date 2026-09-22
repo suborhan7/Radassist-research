@@ -281,3 +281,44 @@ def test_no_heldout_term_in_the_checklist_block_alone():
         assert not re.search(rx, block, re.IGNORECASE), (
             f"held-out term {name!r} is in the Phase 23 checklist block"
         )
+
+
+# ------------------------------------------------------- lifespan wiring
+
+def test_lifespan_passes_the_setting_not_a_literal():
+    """The unit tests above prove the BUILDER honours its arguments. They say
+    nothing about whether main.py actually passes the setting, and the Phase 23
+    dev runs are only labelled correctly if it does.
+
+    A live lifespan test would load BiomedCLIP and CheXbert, so the wiring is
+    asserted at source level instead. This is deterministic and catches the
+    regression that matters: someone passing a literal, or dropping the
+    argument, which would silently make V2 and V3 identical to V0 and V1 while
+    every other test still passed.
+    """
+    import ast
+
+    src = (Path(__file__).resolve().parents[2] / "app" / "main.py").read_text(
+        encoding="utf-8")
+    tree = ast.parse(src)
+
+    calls = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "PromptBuilder"
+    ]
+    assert len(calls) == 1, f"expected exactly one PromptBuilder(...) in main.py, found {len(calls)}"
+
+    kwargs = {k.arg: k.value for k in calls[0].keywords}
+    assert "label_checklist" in kwargs, (
+        "main.py constructs PromptBuilder without label_checklist -- V2/V3 "
+        "would be silently identical to V0/V1"
+    )
+    assert ast.unparse(kwargs["label_checklist"]) == "settings.PROMPT_LABEL_CHECKLIST_ENABLED", (
+        f"label_checklist is wired to {ast.unparse(kwargs['label_checklist'])!r}, "
+        f"not to the setting"
+    )
+    assert ast.unparse(kwargs["checklist_agreement_threshold"]) == \
+        "settings.DISCLAIMER_AGREEMENT_THRESHOLD"
+    assert ast.unparse(kwargs["temporal_terms"]) == "settings.consistency_temporal_terms"
