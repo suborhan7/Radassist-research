@@ -13462,3 +13462,174 @@ behaviour at the frozen tag, is not a defect introduced by Phase 22, and was
 > copying, and the present design cannot separate the two.
 
 **COMPLETE**
+
+---
+
+## Phase 23 — Accuracy Improvement Experiment (Pre-registered, Validation-Selected) — 2026-09-22 — COMPLETE
+
+### Context
+
+Phase 22 fixed a **grounding** failure. It never claimed to improve clinical
+**accuracy**, and the Gate A numbers say so plainly: impression CheXbert
+macro-F1 moved +0.0224 with a CI of [−0.0266, +0.0683] that includes zero, and
+the micro-F1 gain that did clear was largely `No Finding` while Pneumonia
+recall fell from 0.150 to 0.050 (`gate_a_results.md` §3, §6.2).
+
+Phase 23 asks the separate question: **can labelled accuracy be improved, and
+by what?** Two levers were tested, separately and together — a larger model
+(qwen2.5:14b) and a label-checklist prompt block — against the incumbent v1.2
+system.
+
+The design point that matters is where selection happened. Every variant was
+compared on a **150-case dev set drawn from the validation split**, never the
+test pool, with the winner promoted to a test run only if it actually beat the
+incumbent. `plan.md` was committed at **`d55bd8b8`** before any variant ran,
+fixing the dev set, the four variants, the selection rule, the guardrails, the
+tie-breaks, the VRAM drop condition and the final test endpoint — including the
+explicit provision that the rule may return "change nothing", in which case the
+test set is never touched.
+
+### Implementation & Validation
+
+**Dev set, and the four disjointness proofs.** 150 cases sampled seed 20260923
+from the **validation** split under `build_eligible_pool`'s rule verbatim, with
+`split=='val'` substituted for `split=='test'` and nothing else changed. The
+same rule re-derives the test pool to **exactly 477**, which is the check that
+it was transplanted correctly rather than merely producing a plausible number.
+Eligible val pool 490; 150 sampled. Overlap is **0** against all four of: the
+477 eligible test uids, the 477 actually generated in Phase 21 Arm C, the 477
+in Phase 22 Gate A, and the 2,462-document ChromaDB knowledge base. Positive
+control: **0** of 150 fall outside `val`. The KB check is the load-bearing one
+— the knowledge base is the train split only, so a dev case is never retrieved
+as its own neighbour, the same leakage property the test pool has.
+
+**VRAM, measured not assumed.** qwen2.5:14b peaks at **11,401 MiB of 16,376**
+with BiomedCLIP and CheXbert resident — **4.86 GiB headroom** against the
+pre-registered 1 GiB drop threshold, so V1/V3 proceeded. llama3:8b was unloaded
+first, since production runs one LLM at a time. BiomedCLIP (1,041 vs 1,043 MiB)
+and CheXbert (452 vs 452 MiB) reproduce their Phase 22 marginals, which is the
+check that this is the same stack. qwen costs **4,276 MiB more** than llama3:8b.
+
+**The checklist, and why the flag-off test is load-bearing.** A new
+`PROMPT_LABEL_CHECKLIST_ENABLED` setting, default False, gates a block that
+forces every above-threshold voted label to be either affirmed against this
+image's evidence or explicitly negated, and requires every abnormality in
+FINDINGS to appear in IMPRESSION. 22 tests. The one that carries the weight
+asserts that **with the flag off the prompt is byte-identical to v1.2's** — V0
+is only a real baseline if the feature leaves nothing behind, not "nearly
+nothing", not a stray blank line. Held-out containment is parametrised over the
+flag both ways. Suite 512 → 533, zero failures.
+
+**Two verifications per variant, because the output could not settle it.** V0
+and V2 smoke outputs differed, but that proves nothing: Phase 22's noise floor
+measured 67/100 outputs differing on re-run at temperature 0. So each variant
+was verified two ways before scoring — a subprocess resolving
+`app.core.config` under the same environment, and `ollama ps` after the first
+real generation confirming which model **actually served** the request. A
+mismatch on either aborts the variant rather than producing mislabelled
+numbers. Separately, an AST-level test asserts `main.py` binds
+`label_checklist` to the setting rather than a literal; a **negative control
+was run** — rewriting it to `False` makes the test fail, restoring it makes it
+pass. Without that link, V2 and V3 could have run silently identical to V0 and
+V1 with every test still green.
+
+**Runs.** 600 generations, 150 per variant, **zero structural failures**
+across all four. Mean latency: V0 4.56 s, V1 7.37 s, V2 4.58 s, V3 7.33 s.
+CheXbert labels from the **frozen eval path** (torch 2.6.0+cpu, transformers
+4.46.0) for every variant — the same instrument as every Phase 20/21/22 number.
+
+**The verdict, applied mechanically.**
+
+| | imp macro-F1 | imp macro-P | imp macro-R | imp micro-F1 | temporal | contra |
+|---|---|---|---|---|---|---|
+| **V0** llama3:8b | **0.1227** | **0.1654** | **0.1201** | **0.6120** | 0.0533 | 0.0000 |
+| V1 qwen2.5:14b | 0.0826 | 0.0853 | 0.0811 | 0.5325 | 0.0533 | 0.0133 |
+| V2 checklist | 0.1160 | 0.1623 | 0.1089 | 0.5833 | 0.0667 | 0.0000 |
+| V3 both | 0.0788 | 0.0834 | 0.0765 | 0.5017 | 0.0667 | 0.0133 |
+
+**No variant beat V0 on the primary endpoint. WINNER: V0. Step 3 NOT RUN.**
+
+V0 is best on **all twelve** impression and findings cells — macro and micro,
+precision, recall and F1. The single exception in 24 cells is findings
+macro-precision, where V2 leads by 0.0008, inside noise and on the section the
+checklist does not target. The guardrails are reported (V1 and V3 fail
+precision and contradiction; V2 fails temporal) but **were not load-bearing**:
+the verdict holds even if every guardrail is ignored, because nothing beat V0.
+
+**Why qwen lost.** Macro-precision 0.0853 against V0's 0.1654, with recall also
+lower — worse on both, not a trade. It writes longer findings (median 38 vs 28
+words) and asserts a positive finding in 35 of 150 impressions against a
+reference count of 30 and V0's 30. It is the only lever that reintroduced
+self-contradiction (2/150 vs 0/150). It is worse, 61% slower and 4,276 MiB
+larger.
+
+**A real limitation of the dev set, found after the run and not accommodated.**
+**13 of 14 CheXbert labels have reference support below 10** on these 150
+cases; ten score 0.000 for every variant and contribute an identical constant
+to all four macro averages. The macro ranking is effectively decided by
+`No Finding` (support 108), `Lung Opacity` (15) and `Atelectasis` (9). This
+does not invalidate the verdict — **the ranking is identical under micro
+averaging, which is not support-fragile in the same way, and identical on
+findings as well as impression** — but the dev set was underpowered to detect a
+small gain on rare findings, which is exactly where a checklist targeting
+under-calling would be expected to help. The plan was **not** changed to
+accommodate this, because it was discovered after the run. It is the first
+thing to fix if the experiment is repeated.
+
+**Stop conditions.** None triggered. Structural failures 0/600. No held-out
+term reached a prompt. Peak VRAM 11,401 of 16,376 MiB. Disjointness zero on
+four checks. Stop condition 5 was **checked explicitly**: V0's dev temporal
+rate 8/150 = 0.0533 against stored v1.2's 13/477 = 0.0273 gives a two-sided
+binomial **p = 0.0699** with the dev 95% CI **[0.0233, 0.1024] containing the
+test rate** — consistent, not wild, condition not met.
+
+**What was not produced.** No Step 3 measurement. No generation touched the 477
+test uids in this phase. The test pool is exactly as Phase 22 left it.
+
+### How to Write This in Your Thesis
+
+> Two candidate improvements to the report generator were evaluated: replacing
+> the 8-billion-parameter language model with a 14-billion-parameter
+> alternative, and adding a prompt instruction requiring the model to
+> explicitly accept or reject each candidate finding proposed by retrieval.
+> Both were tested alone and in combination against the unmodified system.
+>
+> The evaluation was registered before any output was generated, and the
+> registration fixed a feature that distinguishes it from a search for
+> improvement: selection was performed on a development set of 150 cases drawn
+> from the validation split, with the test set reserved and touched only if a
+> candidate actually outperformed the incumbent. The development set was proved
+> disjoint from the test cases, from the retrieval knowledge base, and from
+> every previously evaluated case. The decision rule was stated in advance,
+> including the outcome in which the rule selects no change at all.
+>
+> The rule selected no change. The unmodified system achieved the highest
+> clinical-labelling accuracy of the four configurations on every metric
+> measured — precision, recall and F1, under both macro and micro averaging,
+> for both the findings and the impression sections. The larger model was
+> substantially worse: its precision was approximately half that of the smaller
+> model, it produced longer findings and asserted more positive findings than
+> the reference reports contained, and it was the only configuration to
+> reintroduce contradictions between a report's own sections. It also required
+> 61% more time and 4.3 GB more memory per report. The prompt instruction
+> produced more stated findings without producing more correct ones.
+>
+> Two aspects of the design should be reported alongside the result. First,
+> each configuration was verified twice before its outputs were scored — once
+> by resolving the configuration in an independent process, and once by
+> confirming which model had actually served the request — because the
+> generator is not deterministic between runs and a difference in output could
+> not by itself confirm that the intended configuration had been applied.
+> Second, a limitation was identified after the run and is reported rather than
+> corrected: thirteen of the fourteen clinical findings appeared fewer than ten
+> times in the development set, so the macro-averaged comparison rested on only
+> three findings. The conclusion is retained because the ranking is unchanged
+> under micro-averaging, which does not share that fragility, but the
+> development set was underpowered to detect a small improvement on rare
+> findings, and a larger or abnormality-enriched set would be required to rule
+> one out.
+>
+> The negative result was obtained without consuming the test set, which is
+> what the reserved-test design was intended to make possible.
+
+**COMPLETE**
