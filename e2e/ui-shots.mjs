@@ -141,16 +141,18 @@ try {
     await sleep(350);
     await shot(`${theme}-2-full-report-expanded`);
 
-    // Back to summary, then exercise the sidebar.
+    // Back to summary, then exercise the sidebar. Docked is the DEFAULT now,
+    // so the collapsed frame is simply the state the screen opens in and the
+    // expanded one has to be asked for -- the reverse of the original order.
     await cdp.evalJs(clickByText("button", "hide full report"));
     await sleep(350);
-    await shot(`${theme}-3-sidebar-expanded`);
+    await shot(`${theme}-4-sidebar-collapsed`);
 
-    if (!(await cdp.evalJs(clickByText("button", "collapse evidence panel")))) {
-      throw new Error("could not find the collapse control");
+    if (!(await cdp.evalJs(clickByText("button", "show evidence panel")))) {
+      throw new Error("could not find the expand control on the docked rail");
     }
     await sleep(500); // width transition
-    await shot(`${theme}-4-sidebar-collapsed`);
+    await shot(`${theme}-3-sidebar-expanded`);
 
     // ---- report WITH validation warnings, full report collapsed ----
     await goto(`${FE}/reports/${REPORT_WARN}`);

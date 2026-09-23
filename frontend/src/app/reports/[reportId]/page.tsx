@@ -99,7 +99,13 @@ const FULL_REPORT_FIELDS = CONTENT_FIELDS.filter((f) => !SUMMARY_KEY_SET.has(f.k
 
 /** localStorage names (namespaced and scoped to the doctor by the hook). */
 const FULL_REPORT_PREF = "workspace.fullReport";
-const EVIDENCE_PREF = "workspace.evidenceCollapsed";
+// v2, and the rename is the point rather than housekeeping. The DEFAULT for
+// this preference flipped from expanded to collapsed, and the hook only ever
+// writes on an explicit toggle -- so a reader who never touched the control
+// has no stored value and picks up the new default, but a reader who did would
+// keep being served a decision they made about the old behaviour. Retiring the
+// key retires those, which is what `v1` in the key namespace exists for.
+const EVIDENCE_PREF = "workspace.evidenceCollapsed.v2";
 
 /**
  * Radiologist Workspace (Phase 12 Step 5, restyled Phase 14 per
@@ -300,7 +306,13 @@ export default function ReportWorkspacePage() {
   const [evidenceCollapsed, setEvidenceCollapsed] = usePersistedToggle(
     currentDoctorId,
     EVIDENCE_PREF,
-    false, // default expanded for a first-time reader
+    // Default DOCKED. The screen opens on the report -- the impression, the
+    // warnings, the consistency verdict -- and the retrieved evidence is
+    // something a reader goes to look at, not something that should be
+    // occupying a third of the station before anyone asked for it. The rail
+    // keeps it one click away and names itself, which is what makes starting
+    // collapsed safe rather than hidden.
+    true,
   );
 
   // The four states that hold the full report open -- see full-report-rules.ts

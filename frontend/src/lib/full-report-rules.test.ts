@@ -108,4 +108,20 @@ describe("the workspace keeps conclusions and alerts out of the disclosure", () 
     expect(page).toContain("usePersistedToggle(\n    currentDoctorId,\n    FULL_REPORT_PREF,");
     expect(page).toContain("usePersistedToggle(\n    currentDoctorId,\n    EVIDENCE_PREF,");
   });
+
+  it("opens with the evidence panel DOCKED, under the v2 key", () => {
+    // The evidence sidebar's default flipped from expanded to docked. Two
+    // things have to hold together for that to actually reach a reader, and
+    // the component test cannot see either of them because it supplies its own
+    // harness values:
+    //
+    //   1. the page passes `true` (docked) as the default, and
+    //   2. the key is the v2 one, so a choice made about the OLD default is
+    //      not replayed as though it were about this one.
+    //
+    // This pins both, and pins the component test's harness to the same pair.
+    expect(page).toContain('const EVIDENCE_PREF = "workspace.evidenceCollapsed.v2"');
+    const call = page.slice(page.indexOf("usePersistedToggle(\n    currentDoctorId,\n    EVIDENCE_PREF,"));
+    expect(call.slice(0, 600)).toMatch(/EVIDENCE_PREF,[\s\S]*?\n\s*true,/);
+  });
 });

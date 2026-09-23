@@ -10,7 +10,7 @@ import { LanguageProvider } from "@/lib/i18n";
 import { usePersistedToggle } from "@/lib/use-persisted-toggle";
 import { EvidenceSidebar, type EvidenceTab } from "./evidence-sidebar";
 
-const STORAGE_KEY = "rr:v1:doctor-1:workspace.evidenceCollapsed";
+const STORAGE_KEY = "rr:v1:doctor-1:workspace.evidenceCollapsed.v2";
 
 let mountCount = 0;
 function MountCounter() {
@@ -22,7 +22,10 @@ function MountCounter() {
 
 /** Mirrors the workspace's wiring: persisted collapse + in-React tab state. */
 function Harness({ scope = "doctor-1" }: { scope?: string | null }) {
-  const [collapsed, setCollapsed] = usePersistedToggle(scope, "workspace.evidenceCollapsed", false);
+  // Collapsed by default, matching the workspace. A source assertion in
+  // full-report-rules.test.ts pins page.tsx to this same name and default,
+  // so this harness cannot drift away from what ships.
+  const [collapsed, setCollapsed] = usePersistedToggle(scope, "workspace.evidenceCollapsed.v2", true);
   const [tab, setTab] = useState<EvidenceTab>("evidence");
   return (
     <LanguageProvider initial="en">
@@ -57,20 +60,25 @@ afterEach(() => {
 });
 
 describe("Evidence sidebar — default and toggle", () => {
-  it("is expanded for a first-time reader", () => {
+  it("starts DOCKED for a first-time reader", () => {
+    // The screen opens on the report. Evidence is something a reader goes to
+    // look at, so it does not occupy a third of the station uninvited -- but
+    // the rail is on screen and named, so it is one click away, not hidden.
     const { container } = render(<Harness />);
+    expect(expandBtn()).not.toBeNull();
+    expect(expandBtn().getAttribute("aria-expanded")).toBe("false");
+    expect(panel(container).hasAttribute("hidden")).toBe(true);
+    expect(aside(container).className).toContain("w-evidence-rail");
+  });
+
+  it("expands on demand and docks again", () => {
+    const { container } = render(<Harness />);
+    fireEvent.click(expandBtn());
     expect(collapseBtn().getAttribute("aria-expanded")).toBe("true");
     expect(panel(container).hasAttribute("hidden")).toBe(false);
     expect(aside(container).className).toContain("w-evidence-panel");
-  });
 
-  it("collapses to a rail that still carries a reopen control", () => {
-    const { container } = render(<Harness />);
     fireEvent.click(collapseBtn());
-
-    // The whole point of a docked rail: the control that brings it back is
-    // still on screen. A panel that collapses to nothing is unreachable.
-    expect(expandBtn()).not.toBeNull();
     expect(expandBtn().getAttribute("aria-expanded")).toBe("false");
     expect(aside(container).className).toContain("w-evidence-rail");
     expect(panel(container).hasAttribute("hidden")).toBe(true);
@@ -78,7 +86,6 @@ describe("Evidence sidebar — default and toggle", () => {
 
   it("makes the docked rail itself the control, and names what it opens", () => {
     const { container } = render(<Harness />);
-    fireEvent.click(collapseBtn());
 
     // The reopen control was a 28px chevron in tertiary grey, reported as
     // invisible. Being findable by aria-label is not the same as being
@@ -95,23 +102,17 @@ describe("Evidence sidebar — default and toggle", () => {
     expect(rail.querySelectorAll("button")).toHaveLength(1);
   });
 
-  it("reopens from the rail", () => {
-    const { container } = render(<Harness />);
-    fireEvent.click(collapseBtn());
-    fireEvent.click(expandBtn());
-    expect(collapseBtn().getAttribute("aria-expanded")).toBe("true");
-    expect(panel(container).hasAttribute("hidden")).toBe(false);
-  });
-
   it("uses real buttons that name what they control", () => {
     const { container } = render(<Harness />);
-    expect(collapseBtn().tagName).toBe("BUTTON");
-    expect(collapseBtn().getAttribute("aria-controls")).toBe("evidence-panel");
-    expect(container.querySelector("#evidence-panel")).not.toBeNull();
-
-    fireEvent.click(collapseBtn());
     expect(expandBtn().tagName).toBe("BUTTON");
     expect(expandBtn().getAttribute("aria-controls")).toBe("evidence-panel");
+    // The panel it points at exists even while docked -- hidden, not
+    // unmounted -- so aria-controls never dangles.
+    expect(container.querySelector("#evidence-panel")).not.toBeNull();
+
+    fireEvent.click(expandBtn());
+    expect(collapseBtn().tagName).toBe("BUTTON");
+    expect(collapseBtn().getAttribute("aria-controls")).toBe("evidence-panel");
   });
 
   it("animates width from a token and honours reduced motion through it", () => {
@@ -128,46 +129,59 @@ describe("Evidence sidebar — default and toggle", () => {
 describe("Evidence sidebar — collapsed content is hidden from assistive tech", () => {
   it("takes the panel out of the accessibility tree when docked", () => {
     render(<Harness />);
-    expect(screen.queryByRole("heading", { name: "panel: evidence" })).not.toBeNull();
-
-    fireEvent.click(collapseBtn());
+    // Docked from the start, so this is the state a reader actually lands in.
     expect(screen.queryByRole("heading", { name: "panel: evidence" })).toBeNull();
     // The tab buttons go with it -- a docked panel must not leave three tab
     // controls in the tab order behind a 48px rail.
     expect(screen.queryByRole("button", { name: /agreement/i })).toBeNull();
+
+    // And all of it comes back on expand.
+    fireEvent.click(expandBtn());
+    expect(screen.queryByRole("heading", { name: "panel: evidence" })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /agreement/i })).not.toBeNull();
   });
 });
 
 describe("Evidence sidebar — persistence", () => {
-  it("writes the collapse choice to a namespaced, per-doctor key", () => {
+  it("writes the choice to a namespaced, per-doctor key", () => {
     render(<Harness />);
-    fireEvent.click(collapseBtn());
-    expect(window.localStorage.getItem(STORAGE_KEY)).toBe("true");
+    fireEvent.click(expandBtn());
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBe("false");
+  });
+
+  it("stores nothing until the reader actually chooses", () => {
+    // This is what let the default change reach existing readers: the hook
+    // writes on toggle only, so anyone who never touched the control has no
+    // stored value and picks up whatever the current default is.
+    render(<Harness />);
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
   it("survives a reload", () => {
     const first = render(<Harness />);
-    fireEvent.click(collapseBtn());
+    fireEvent.click(expandBtn());
     first.unmount();
 
     const { container } = render(<Harness />);
-    expect(expandBtn().getAttribute("aria-expanded")).toBe("false");
-    expect(aside(container).className).toContain("w-evidence-rail");
+    expect(collapseBtn().getAttribute("aria-expanded")).toBe("true");
+    expect(aside(container).className).toContain("w-evidence-panel");
   });
 
   it("does not leak one doctor's layout to another", () => {
     const first = render(<Harness scope="doctor-1" />);
-    fireEvent.click(collapseBtn());
+    fireEvent.click(expandBtn());
     first.unmount();
 
+    // doctor-2 never chose, so they get the default: docked.
     render(<Harness scope="doctor-2" />);
-    expect(collapseBtn().getAttribute("aria-expanded")).toBe("true");
+    expect(expandBtn().getAttribute("aria-expanded")).toBe("false");
   });
 });
 
 describe("Evidence sidebar — reopening restores the active tab", () => {
   it("comes back on the tab it was left on, not on the first one", () => {
     render(<Harness />);
+    fireEvent.click(expandBtn());
     fireEvent.click(screen.getByRole("button", { name: /alternatives/i }));
     expect(screen.queryByRole("heading", { name: "panel: alternatives" })).not.toBeNull();
 
@@ -185,9 +199,9 @@ describe("Evidence sidebar — toggling costs nothing", () => {
     render(<Harness />);
     expect(mountCount).toBe(1);
 
-    fireEvent.click(collapseBtn());
     fireEvent.click(expandBtn());
     fireEvent.click(collapseBtn());
+    fireEvent.click(expandBtn());
 
     expect(fetch).not.toHaveBeenCalled();
     expect(mountCount).toBe(1);

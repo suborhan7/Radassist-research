@@ -42,8 +42,8 @@ disposable copy — the same fail-closed discipline as the rest of `e2e/`.
 |---|---|---|
 | `{dark,light}-1-summary.png` | default, collapsed | The impression, the recommendation, the validation block and the consistency verdict are all visible without opening anything. The full report sits behind one control, labelled with what is inside it. |
 | `{dark,light}-2-full-report-expanded.png` | disclosure open | Examination, Clinical History, Technique, Findings and Disclaimer, with the control now reading "Hide full report". |
-| `{dark,light}-3-sidebar-expanded.png` | evidence panel open | The default for a first-time reader. Evidence prose is set in the same 16px/1.6 body token as the report column. |
-| `{dark,light}-4-sidebar-collapsed.png` | evidence panel docked | The panel collapses to a 48px rail that still carries its reopen control, and the report column widens from 530px to 700px. Body text does **not** stretch edge to edge — it stays capped at the 74ch measure. |
+| `{dark,light}-3-sidebar-expanded.png` | evidence panel open | Reached by clicking the docked rail. Evidence prose is set in the same 16px/1.6 body token as the report column. |
+| `{dark,light}-4-sidebar-collapsed.png` | evidence panel docked — **the default** | The panel collapses to a 48px rail that still carries its reopen control, and the report column widens from 530px to 700px. Body text does **not** stretch edge to edge — it stays capped at the 74ch measure. |
 | `{dark,light}-5-warnings-full-report-collapsed.png` | warnings present, report collapsed | **The frame that matters most.** Three validation warnings and a `partial` consistency verdict are both fully visible while the full report is still collapsed. Nothing a doctor must act on is behind a disclosure. |
 
 ## The two reports used
