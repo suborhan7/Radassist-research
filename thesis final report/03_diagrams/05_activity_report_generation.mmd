@@ -1,0 +1,36 @@
+%% 05_activity_report_generation -- end-to-end activity flow, part 1 of 2:
+%% upload through retrieval. Part 2 is 05b_activity_generation_review.mmd.
+%% Every decision node is a branch that really exists in the code.
+flowchart TB
+  ST((" ")):::term
+  A1["select patient, choose file,<br/><b>declare the projection</b>"]:::act
+  D1{"admission<br/>A1-A13"}:::dec
+  R1["reject <b>415/413/422</b><br/>+ audit row, metadata only"]:::rej
+  D2{"declared<br/>PA or AP?"}:::dec
+  R2["reject <b>422</b><br/>not masked, not embedded,<br/>Chroma not queried"]:::rej
+  A3["PHI mask, then embed<br/>the <b>masked</b> pixels"]:::act
+  D3{"modality score<br/>>= <b>0.60</b>?"}:::dec
+  R3["reject <b>422</b><br/>masked copy unlinked"]:::rej
+  A5["retrieve top 5, vote labels"]:::act
+  D4{"<b>support band</b><br/>top-1 vs two thresholds"}:::dec
+  R4["reject <b>422</b><br/>top-1 &lt; <b>0.8500</b>"]:::rej
+  A6["<b>below_floor</b><br/>does not block (DR-3)"]:::act
+  A7["<b>at_or_above_floor</b>"]:::act
+  A8["persist session<br/>+ 5 evidence rows"]:::act
+  GO(["continue in part 2"]):::term2
+  ST --> A1 --> D1
+  D1 -->|fail| R1
+  D1 -->|pass| D2
+  D2 -->|no| R2
+  D2 -->|yes| A3 --> D3
+  D3 -->|no| R3
+  D3 -->|yes| A5 --> D4
+  D4 -->|reject| R4
+  D4 -->|low| A6 --> A8
+  D4 -->|normal| A7 --> A8
+  A8 --> GO
+  classDef act   fill:#f2f2f2,stroke:#000,stroke-width:1.5px,color:#000
+  classDef dec   fill:#ffffff,stroke:#000,stroke-width:3px,color:#000
+  classDef rej   fill:#bdbdbd,stroke:#000,stroke-width:2.5px,stroke-dasharray:5 3,color:#000
+  classDef term  fill:#000000,stroke:#000,stroke-width:3px,color:#fff
+  classDef term2 fill:#ffffff,stroke:#000,stroke-width:3px,color:#000

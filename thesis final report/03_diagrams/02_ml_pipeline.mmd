@@ -1,0 +1,58 @@
+%% 02_ml_pipeline -- image in, through preprocessing, masking, the encoder,
+%% the vector store, k-NN and label voting, to the outputs.
+%% Laid out as stacked rows so the figure stays near-square and legible in
+%% print. Provenance for every value is in the caption file.
+flowchart TB
+  subgraph R1["admit and mask"]
+    direction LR
+    IN(["chest radiograph<br/>png / jpg / jpeg"]):::io
+    ADM["<b>1 ADMISSION</b><br/>A1-A13<br/>re-encode to PNG"]:::step
+    PRJ{"<b>2 PROJECTION</b><br/>PA or AP?"}:::gate
+    MSK["<b>3 PHI MASK</b><br/>EasyOCR<br/>black boxes<br/>area cap 0.08"]:::step
+  end
+  subgraph R2["encode and gate"]
+    direction LR
+    ENC["<b>4 ENCODER</b><br/>BiomedCLIP"]:::model
+    VEC(["vector<br/><b>512-dim</b>"]):::io
+    GT{"<b>5 MODALITY</b><br/>score >= <b>0.60</b>?"}:::gate
+  end
+  subgraph R3["retrieve and band"]
+    direction LR
+    KB[("<b>ChromaDB</b><br/><b>2,462</b> docs<br/>train split only")]:::store
+    RET["<b>6 RETRIEVAL</b><br/>k-NN <b>top_k = 5</b><br/>sim = 1 - distance"]:::step
+    BND{"<b>7 BAND</b><br/>two thresholds<br/>on top-1"}:::gate
+    LOW["<b>below_floor</b><br/>never blocks"]:::step
+    OK["<b>at_or_above_floor</b><br/>top-1 >= 0.89062"]:::step
+  end
+  subgraph R4["vote and emit"]
+    direction LR
+    VOT["<b>8 VOTING</b><br/>weight = sum sim<br/>agreement = n / 5"]:::step
+    O1(["5 cases<br/>uid, sim, labels<br/>findings, impression"]):::io
+    O2(["voted labels"]):::io
+    O3(["support + top-1"]):::io
+  end
+  subgraph RJ["every rejection"]
+    direction LR
+    RJA["<b>415 / 413 / 422</b><br/>admission or<br/>projection"]:::reject
+    RJB["<b>422</b><br/>not a chest x-ray"]:::reject
+    RJC["<b>422</b> top-1 &lt; <b>0.8500</b><br/>post-hoc value"]:::reject
+  end
+  IN --> ADM --> PRJ --> MSK
+  MSK --> ENC --> VEC --> GT
+  GT --> RET
+  KB --> RET --> BND
+  BND --> LOW --> VOT
+  BND --> OK --> VOT
+  RET --> O1
+  VOT --> O2
+  OK --> O3
+  ADM -.-> RJA
+  PRJ -.-> RJA
+  GT -.-> RJB
+  BND -.-> RJC
+  classDef step   fill:#f2f2f2,stroke:#000,stroke-width:1.5px,color:#000
+  classDef gate   fill:#ffffff,stroke:#000,stroke-width:3px,color:#000
+  classDef reject fill:#bdbdbd,stroke:#000,stroke-width:2.5px,stroke-dasharray:5 3,color:#000
+  classDef io     fill:#ffffff,stroke:#000,stroke-width:2.5px,color:#000
+  classDef model  fill:#dedede,stroke:#000,stroke-width:3px,color:#000
+  classDef store  fill:#c4c4c4,stroke:#000,stroke-width:2.5px,color:#000

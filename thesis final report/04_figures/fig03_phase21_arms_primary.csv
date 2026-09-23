@@ -1,0 +1,15 @@
+# source: ml/outputs/evaluation/phase21_arm_contrasts.json + phase21_arm_contrasts_n477.json
+kind,label,n,value_or_diff,ci_lower,ci_upper,excludes_zero
+arm_level,A empty,100,0.05782312925170068,,,
+arm_level,B labels_only,100,0.15858170606372046,,,
+arm_level,C full,100,0.1388773228467885,,,
+arm_level,B labels_only,477,0.14780403348389326,,,
+arm_level,C full,477,0.17339573067068947,,,
+contrast_PRIMARY,C - A   (n=100),100,0.08105419359508781,0.029925647884354836,0.12130505842788701,True
+contrast_PRIMARY,C - B   (n=100),100,-0.019704383216931964,-0.06214181182036442,0.03343834762144501,False
+contrast_PRIMARY,C - B (n=477) [PRIMARY],477,0.025591697186796214,-0.019802762820331797,0.07096950069410558,False
+contrast_secondary,C - B findings_rouge_l (n=477),477,0.09191871501018094,0.08321100223686255,0.10120838638018766,True
+contrast_secondary,C - B findings_meteor (n=477),477,0.22650143386778904,0.21507136158090004,0.23755415560687107,True
+contrast_secondary,C - B findings_chexbert_macro_f1 (n=477),477,0.05874960746580886,0.01650202967046759,0.09777231553985062,True
+contrast_secondary,C - B impression_rouge_l (n=477),477,0.21454576048909843,0.19062632221111106,0.24034285437407973,True
+contrast_secondary,C - B impression_meteor (n=477),477,0.20966695732373272,0.18579621427884893,0.23477491255821045,True

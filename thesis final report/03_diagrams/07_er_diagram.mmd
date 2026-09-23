@@ -1,0 +1,74 @@
+%% 07_er_diagram -- the report lifecycle core, after alembic head 7f2a91c4d6e8.
+%% The four satellite tables are in 07b_er_diagram_satellites.mmd; together the
+%% two figures are the whole nine-table schema. Which migration added which
+%% column is in the caption file.
+erDiagram
+    DOCTORS ||--o{ RETRIEVAL_SESSIONS : performs
+    DOCTORS ||--o{ REPORTS : finalized
+    PATIENTS ||--o{ RETRIEVAL_SESSIONS : subject
+    RETRIEVAL_SESSIONS ||--o{ RETRIEVED_EVIDENCE : ranked
+    RETRIEVAL_SESSIONS ||--o{ REPORTS : generated
+
+    DOCTORS {
+        Uuid id PK
+        String email UK
+        String password_hash "Argon2id"
+        String full_name
+        DateTime created_at
+        String bmdc_number "null, never verified"
+        Integer default_top_k "null"
+        String default_language "null"
+        Boolean default_questionnaire_skip "null"
+        String default_rail_state "null"
+        String default_export_format "null"
+    }
+    PATIENTS {
+        Uuid id PK
+        String patient_code UK
+        String name
+        Date date_of_birth
+        String gender
+        DateTime created_at
+    }
+    RETRIEVAL_SESSIONS {
+        Uuid id PK
+        String query_image_path "the MASKED copy"
+        Integer top_k
+        Float min_similarity
+        Integer num_results
+        Integer retrieval_time_ms
+        DateTime created_at
+        Uuid patient_id FK "null"
+        Uuid doctor_id FK "null"
+    }
+    RETRIEVED_EVIDENCE {
+        Uuid id PK
+        Uuid session_id FK
+        String study_uid
+        Integer rank
+        Float similarity "the only real score"
+    }
+    REPORTS {
+        Uuid id PK
+        Uuid session_id FK
+        String language
+        Enum status "AI_DRAFT DOCTOR_EDITED FINAL"
+        JSON ai_draft_content "immutable"
+        JSON final_content "only PATCH touches"
+        JSON validation_warnings
+        String report_date
+        String llm_model_temperature "2 cols"
+        String embedding_model_version_collection "3 cols"
+        DateTime created_at_updated_at "2 cols"
+        DateTime finalized_at "null"
+        Uuid finalized_by FK "null"
+        JSON questionnaire_answers "null"
+        String clinical_notes "null"
+        String retrieval_support "null"
+        Float top1_similarity "null"
+        JSON voted_labels "null, D4"
+        Float agreement "null, D4"
+        JSON consistency_violations "null is not empty"
+        JSON consistency_checks_run "null"
+        Integer consistency_retry_count "always 0"
+    }

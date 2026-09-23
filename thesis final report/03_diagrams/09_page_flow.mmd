@@ -1,0 +1,57 @@
+%% 09_page_flow -- the page-based UI flow after commit a8252e09.
+%% The workspace used to be ONE screen; it is now three routes, which is why
+%% a step bar exists at all.
+flowchart TB
+  subgraph ENTRY["entry"]
+    direction LR
+    LAND["<b>/</b><br/>landing"]:::pub
+    LOGIN["<b>/login</b>"]:::pub
+    REG["<b>/register</b>"]:::pub
+  end
+  DASH["<b>/dashboard</b> -- QUEUE, counts, awaiting review, 4-service health strip"]:::page
+  subgraph PAT["patients"]
+    direction LR
+    FIND["<b>/patients/search</b><br/>by name or code"]:::page
+    PLIST["<b>/patients</b><br/>directory"]:::page
+    PNEW["<b>/patients/new</b>"]:::page
+    PPROF["<b>/patients/{id}</b><br/><b>prior studies</b>"]:::page
+  end
+  UP["<b>/patients/{id}/upload</b> -- step 1 <b>GENERATE</b><br/>upload, retrieve, questionnaire, generate"]:::page
+  WSIDX["<b>/workspace/{id}</b> -- server redirect"]:::redir
+  subgraph WS["workspace -- ONE layout, held across both routes"]
+    direction LR
+    WREP["<b>/../report</b> -- step 2<br/>summary first"]:::page
+    WEV["<b>/../evidence</b> -- step 3<br/>3 tabs, full width"]:::page
+  end
+  subgraph SIDE["from the report"]
+    direction LR
+    EXPL["<b>/reports/{id}/explain</b>"]:::page
+    COMP["<b>/reports/{id}/compare</b>"]:::page
+    PRINT["print portal, in the LAYOUT<br/>so it works from either route"]:::over
+    SET["<b>/settings</b><br/>no separate /profile"]:::page
+  end
+  LAND --> LOGIN
+  LAND --> REG
+  LOGIN --> DASH
+  REG --> DASH
+  DASH --> PAT
+  DASH -->|oldest awaiting review| WSIDX
+  PLIST --> PNEW
+  PNEW --> PPROF
+  FIND --> PPROF
+  PLIST --> PPROF
+  PPROF -->|new examination| UP
+  PPROF -->|open a prior| WSIDX
+  UP -->|push after generate| WREP
+  WSIDX --> WREP
+  WREP <-->|"<b>no refetch</b>"| WEV
+  WREP --> SIDE
+  DASH --> SET
+  N1["step bar: reached = link, current = aria-current, <b>unreached = plain text, never a dead control</b>.<br/>Global on every authenticated screen: app rail, EN/Bangla toggle, light/dark toggle."]:::note
+  N2["<b>SUPERSEDED:</b> /reports/{id}, one screen with a 340px evidence sidebar that docked to a 48px rail.<br/>All 11 shots in docs/thesis/figures/ui/ show THAT UI and are stale."]:::gone
+  classDef pub   fill:#ffffff,stroke:#000,stroke-width:2.5px,color:#000
+  classDef page  fill:#f2f2f2,stroke:#000,stroke-width:1.5px,color:#000
+  classDef redir fill:#e6e6e6,stroke:#000,stroke-width:1.5px,stroke-dasharray:5 3,color:#000
+  classDef over  fill:#dedede,stroke:#000,stroke-width:2px,stroke-dasharray:4 2,color:#000
+  classDef note  fill:#ffffff,stroke:#000,stroke-width:1.5px,stroke-dasharray:3 3,color:#000
+  classDef gone  fill:#bdbdbd,stroke:#000,stroke-width:2px,stroke-dasharray:2 4,color:#000

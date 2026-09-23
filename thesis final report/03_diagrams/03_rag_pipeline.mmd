@@ -1,0 +1,27 @@
+%% 03_rag_pipeline -- the RAG path. What is retrieved, what reaches the model,
+%% and what is checked afterwards. Detail is in the caption file.
+flowchart TB
+  Q(["query image, masked and gated<br/>embedded once, <b>512-dim</b>"]):::io
+  KB[("<b>KNOWLEDGE BASE</b> -- 2,462 docs<br/><b>train split only</b>, leakage-controlled")]:::store
+  RET["<b>retrieve</b> -- k-NN, top 5"]:::step
+  RAW(["<b>retrieved</b>: 5 neighbours, with<br/>their findings and impressions"]):::io
+  AGG["<b>aggregate</b> -- vote, collapse near-dups,<br/>sort deterministically, partition<br/>= ClinicalContext, mode FULL"]:::step
+  PRM["<b>prompt</b> -- 9 fixed sections,<br/>evidence block last"]:::step
+  PASS(["<b>WHAT THE MODEL GETS</b><br/>neighbour TEXT and voted labels.<br/><b>Not the image.</b> max 1,574 / 4,096 tok"]):::io
+  LLM[["<b>llama3:8b</b> -- temp 0.0, seed 42"]]:::model
+  SV{"<b>structural</b> -- 7 markers ok?<br/>retry budget 2, <b>count not recorded</b>"}:::gate
+  F422["<b>422</b> -- budget spent"]:::reject
+  RC(["7-field report"]):::io
+  CHK["<b>CHECKED AFTERWARDS -- NONE BLOCK</b><br/>semantic: advisory - consistency x3<br/><b>transplant emits nothing</b> (no Gate B threshold)<br/>disclaimer <b>replaced</b> by the server's"]:::step
+  DB[("reports row -- retry_count = <b>0</b>")]:::store
+  Q --> RET
+  KB --> RET --> RAW --> AGG --> PRM --> PASS --> LLM --> SV
+  SV -.->|"invalid, retry"| LLM
+  SV -.->|spent| F422
+  SV -->|valid| RC --> CHK --> DB
+  classDef step   fill:#f2f2f2,stroke:#000,stroke-width:1.5px,color:#000
+  classDef gate   fill:#ffffff,stroke:#000,stroke-width:3px,color:#000
+  classDef reject fill:#bdbdbd,stroke:#000,stroke-width:2.5px,stroke-dasharray:5 3,color:#000
+  classDef io     fill:#ffffff,stroke:#000,stroke-width:2.5px,color:#000
+  classDef model  fill:#dedede,stroke:#000,stroke-width:3px,color:#000
+  classDef store  fill:#c4c4c4,stroke:#000,stroke-width:2.5px,color:#000

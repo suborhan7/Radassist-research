@@ -1,0 +1,40 @@
+%% 06_sequence_generate_report -- one generation across the frontend, the API,
+%% the services, Ollama and both databases. Numbers are the line at which
+%% control passes on, at commit 99f3eab8. Full detail is in the caption file.
+sequenceDiagram
+    autonumber
+    actor D as Doctor
+    participant FE as Frontend
+    participant API as API
+    participant GEN as Generation
+    participant DB as SQLite
+    participant CH as Chroma
+    participant OL as Ollama
+
+    D->>FE: press Generate
+    FE->>API: POST /generate-report + cookie
+    API->>DB: resolve the doctor from the JWT
+    DB-->>API: Doctor, else 401
+    API->>GEN: generate() :122
+    GEN->>DB: session + evidence by rank :160
+    DB-->>GEN: 5 uids and the REAL similarities
+    GEN->>CH: get_by_ids()
+    CH-->>GEN: case text, similarity forced to 1.0
+    Note over GEN,CH: that 1.0 is a sentinel -- discarded, and the persisted similarities restored by uid
+    GEN->>GEN: build context :170 (mode FULL), then the prompt
+    loop content retry, budget 2
+        GEN->>OL: /api/generate, temp 0.0, seed 42
+        OL-->>GEN: raw text, then the 7-marker structural check
+        Note over GEN,OL: on failure, a correction prompt. Attempt count NOT recorded -- D5 open
+    end
+    GEN->>GEN: validate_semantic() :182 -- ADVISORY, gates nothing
+    GEN->>GEN: consistency :200 -- English gets all three checks, other languages none
+    Note over GEN: failures here are caught broadly. retry_count is always 0 -- there is no Gate C
+    GEN->>DB: top-1 by rank :219
+    DB-->>GEN: the real top-1 similarity
+    GEN->>GEN: classify support, render the SERVER-AUTHORED disclaimer :242
+    GEN->>DB: INSERT reports :276
+    DB-->>GEN: committed, else rollback and re-raise
+    GEN-->>API: GenerationOutcome
+    API-->>FE: 200 -- consistency derived from the values just persisted
+    FE-->>D: /workspace/{id}/report

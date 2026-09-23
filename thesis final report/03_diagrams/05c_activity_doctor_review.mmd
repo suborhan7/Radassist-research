@@ -1,0 +1,24 @@
+%% 05c_activity_doctor_review -- activity flow, part 3 of 3: the doctor's
+%% review loop, from reading the AI draft to a finalized, printable report.
+flowchart TB
+  GO(["from part 2 -- status AI_DRAFT"]):::term2
+  A20["doctor reads, summary-first:<br/>impression, recommendation, warnings<br/>and consistency all visible unopened"]:::act
+  D11{"edit a section?"}:::dec
+  A21["PATCH, 5 of 7 fields<br/>status <b>DOCTOR_EDITED</b><br/>word-level diff against the draft"]:::act
+  D12{"regenerate a section?"}:::dec
+  A22["candidate returned --<br/>doctor <b>accepts or rejects</b> it"]:::act
+  D13{"finalize?"}:::dec
+  A23["status <b>FINAL</b><br/>finalized_at + finalized_by<br/>report_audit_log row<br/><b>editing now refused 409</b>"]:::act
+  A24["print / save as PDF<br/>browser-side, both languages"]:::act
+  EN((" ")):::term
+  GO --> A20 --> D11
+  D11 -->|yes| A21 --> D12
+  D11 -->|no| D13
+  D12 -->|yes| A22 --> D13
+  D12 -->|no| D13
+  D13 -->|"no, keep working"| A20
+  D13 -->|yes| A23 --> A24 --> EN
+  classDef act   fill:#f2f2f2,stroke:#000,stroke-width:1.5px,color:#000
+  classDef dec   fill:#ffffff,stroke:#000,stroke-width:3px,color:#000
+  classDef term  fill:#000000,stroke:#000,stroke-width:3px,color:#fff
+  classDef term2 fill:#ffffff,stroke:#000,stroke-width:3px,color:#000

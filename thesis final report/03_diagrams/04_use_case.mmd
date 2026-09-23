@@ -1,0 +1,65 @@
+%% 04_use_case -- actors and use cases AS IMPLEMENTED.
+%% ONE human actor. The doctors table has no role column, so there is no
+%% admin, no reviewer and no institutional role. No admin actor is invented.
+flowchart TB
+  DOC(("<b>Doctor /<br/>Radiologist</b><br/>the only human actor")):::actor
+  subgraph G1["Account"]
+    direction TB
+    U1(["register"]):::uc
+    U2(["log in / out"]):::uc
+    U3(["edit own profile<br/>and defaults"]):::uc
+  end
+  subgraph G2["Patients"]
+    direction TB
+    U4(["register a patient"]):::uc
+    U5(["find a patient"]):::uc
+    U6(["profile and<br/>prior studies"]):::uc
+  end
+  subgraph G3["Examination"]
+    direction TB
+    U7(["upload and declare<br/>the projection"]):::uc
+    U8(["answer the<br/>questionnaire"]):::uc
+    U9(["<b>generate a report</b>"]):::uc
+  end
+  subgraph G4["Report work"]
+    direction TB
+    UA(["read, summary-first"]):::uc
+    UB(["inspect evidence,<br/>3 tabs"]):::uc
+    UC(["edit a section,<br/>5 of 7 fields"]):::uc
+    UD(["regenerate a section"]):::uc
+    UE(["finalize"]):::uc
+    UF(["delete own draft"]):::uc
+    UG(["print / save as PDF"]):::uc
+    UH(["read another doctor's<br/>report, read-only"]):::uc
+  end
+  subgraph G5["Downstream"]
+    direction TB
+    UI(["ask the explainer"]):::uc
+    UJ(["compare with a prior"]):::uc
+  end
+  subgraph G6["Cross-cutting"]
+    direction TB
+    UK(["switch EN / Bangla"]):::uc
+    UL(["switch light / dark"]):::uc
+    UM(["read queue and health"]):::uc
+  end
+  OLL(("Ollama")):::sys
+  CHR(("ChromaDB")):::sys
+  DOC --- G1
+  DOC --- G2
+  G1 ~~~ G3
+  G2 ~~~ G4
+  G3 ~~~ G5
+  G4 ~~~ G6
+  U9 -.->|includes| U7
+  U9 -.->|includes| U8
+  UD -.->|extends| UC
+  UJ -.->|needs a prior| U6
+  G3 -.- CHR
+  G3 -.- OLL
+  N1["<b>OWNERSHIP, NOT ROLES.</b><br/>Edit, finalize, delete and regenerate<br/>all call one _check_ownership.<br/>A NULL owner fails closed.<br/><b>Reading is not gated.</b>"]:::note
+  N2["<b>NOT IMPLEMENTED, so not drawn:</b><br/>admin actor, RBAC,<br/>BMDC verification, server-side PDF,<br/>consistency retry."]:::note
+  classDef actor fill:#ffffff,stroke:#000,stroke-width:4px,color:#000
+  classDef sys   fill:#d9d9d9,stroke:#000,stroke-width:2.5px,stroke-dasharray:5 3,color:#000
+  classDef uc    fill:#f2f2f2,stroke:#000,stroke-width:1.5px,color:#000
+  classDef note  fill:#ffffff,stroke:#000,stroke-width:1.5px,stroke-dasharray:3 3,color:#000

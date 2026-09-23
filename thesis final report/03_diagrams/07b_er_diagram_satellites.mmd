@@ -1,0 +1,61 @@
+%% 07b_er_diagram_satellites -- the four tables that hang off the core in
+%% 07_er_diagram.mmd. Together the two figures are the whole nine-table schema
+%% as it exists after alembic head 7f2a91c4d6e8.
+erDiagram
+    DOCTORS ||--o{ COMPARISONS : performs
+    DOCTORS ||--o{ EXPLANATIONS : asks
+    DOCTORS ||--o{ UPLOAD_REJECTION_LOG : attempted
+    DOCTORS ||--o{ REPORT_AUDIT_LOG : acted
+    PATIENTS ||--o{ COMPARISONS : subject
+    REPORTS ||--o{ EXPLANATIONS : questioned
+    REPORTS ||--o{ REPORT_AUDIT_LOG : edited
+    REPORTS ||--o{ COMPARISONS : previous_and_current
+
+    DOCTORS {
+        Uuid id PK
+        String email UK
+    }
+    PATIENTS {
+        Uuid id PK
+        String patient_code UK
+    }
+    REPORTS {
+        Uuid id PK
+        Enum status
+    }
+    COMPARISONS {
+        Uuid id PK
+        Uuid patient_id FK
+        Uuid previous_report_id FK
+        Uuid current_report_id FK
+        JSON deterministic_facts "no LLM"
+        Text llm_narrative
+        DateTime created_at
+        Uuid doctor_id FK "null"
+    }
+    EXPLANATIONS {
+        Uuid id PK
+        Uuid report_id FK
+        String question
+        String answer
+        DateTime created_at
+        Uuid doctor_id FK "null"
+    }
+    REPORT_AUDIT_LOG {
+        Uuid id PK
+        Uuid report_id FK
+        Uuid doctor_id FK
+        String action "EDIT only"
+        DateTime at
+    }
+    UPLOAD_REJECTION_LOG {
+        Uuid id PK
+        DateTime at
+        Uuid doctor_id FK
+        String reason_code
+        String stage
+        Float modality_score "null"
+        String raw_sha256
+        Integer file_size_bytes
+        String declared_extension "never the filename"
+    }

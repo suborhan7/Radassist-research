@@ -1,0 +1,137 @@
+%\section{Introduction}
+\section{Background } 
+ Bangladesh, having a population of more than 170 million, is facing a healthcare paradox where a significant disparity exists in the availability of diagnostic services among developed and underdeveloped areas especially due to the scarcity of expert radiologists and advanced medical facilities in non metropolitan areas. The patients in remote areas are left with no options other than traveling long distances to avail radiology diagnostic service which is increasing medical costs and delaying treatment resulting in severe complications and fatality.  
+
+Medical imaging plays an important role when it comes to modern healthcare by enabling accurate diagnosis such as X-ray. Large Language Models (LLM) have shown great potential in automatically generating medical images and analysing them to generate clinical reports.\cite{Gu2021,Singhal2022}. Some vision language models can assist in producing radiology reports by analysing images which can reduce the manual effort of the radiologists. However, generative models often suffer from hallucinations, producing incorrect statements, which is quite fatal in healthcare. Retrieval-Augmented Generation (RAG) has come into this field as an effective solution by using generated text in retrieval of external knowledge, such as similar medical reports or verified clinical documents which improves factual accuracy and transparency.\cite{Jeong2024,Lewis2020}
+
+\section{Motivation}
+The motivation for this project is to solve the geographic gap by developing an accessible web-based platform for automated radiology report generation by leveraging a pre-built RAG engine. This project aligns with the United Nations sustainable development goals (SDG), specifically SDG 3 (Good Health and well-being) and SDG 10 (Reduced Inequalities). Instead of inventing new theoretical architectures, we aim to apply existing Rag Frameworks to build a low-cost report generating tool for X-ray. This project is especially relevant in resource-constrained developing countries such as Bangladesh, where the website can be used as a medical supporting tool that enhances the capabilities of local clinicians and radiologists by contributing to better accessibility, scaled down diagnostic workload, cost cut and reduced geographic healthcare gap.
+
+\section{Problem Statement}
+Though AI-based medical image interpretation has remarkable improvement, the existing automatic medical report generation systems, especially LLM sometimes lack factual grounding and explainability. Standard language models without retrieval technology can produce fluent reports but may provide hallucinated clinical findings.\cite{Xiong2024,Zhao2025}
+. 
+In countries like Bangladesh, the problem is more crucial due to the lack of expertised medical practitioners and  radiology specialists in different parts of the country. The metropolitan cities such as Dhaka have advanced diagnostic facilities whereas the rural and semi-urban areas have a limited number of radiologists which increase their work pressure and affect the report quality or misinterpretation due to the high number of cases. The traditional process of radiology report generation is often very rigorous, time consuming and not cost effective. 
+Traditional diagnostic systems face several critical challenges stated here which causes delayed diagnosis, heavy workload on the professionals and increased healthcare inequalities. The object of this project is to address these issues through an end-to-end web-based system which uses Retrieval Augmented Generation technology to provide evidence grounded interpretational reports in resource limited healthcare settings.
+
+
+\section{Project Objectives}
+The primary goal is to build an end-to-end web platform designed to contribute to the healthcare system. Key objectives of the project are:
+
+\begin{itemize}
+    \item Designing and developing a web-based medical image report generation system that integrates a pre-built Retrieval-Augmented Generation (RAG) framework.
+    \item Utilizing established RAG technology to generate more clinically grounded reports.
+    \item Reducing AI hallucination and improving factual consistency in the interpreted reports through a retrieval mechanism so that the generated reports are reliable.
+    \item Creating a platform that provides a user-friendly interface, enables efficient image upload, and automatically generates medical reports.
+    \item Emphasizing data security and ethical compliance by using non-identifiable data and positioning the system strictly as a clinical decision-support tool rather than a diagnostic authority.
+\end{itemize}
+
+\section{Methodology in brief}
+The system analyzes medical images by using Retrieval-Augmented Generation (RAG) to
+generate clinically grounded radiology reports. X-ray images are first preprocessed and analyzed
+with a pre-trained convolutional neural network (CNN) to pull out relevant visual features. The
+per-built RAG framework retrieves similar verified radiology reports from a knowledge base
+using vector similarity search with the help of the extracted features through CNN. With the
+image features and retrieved references, a trained LLM generates the final report. This
+retrieval-based grounding process helps to minimize hallucinations and increases factual
+correctness. The web-based clinical decision-support system (CDSS) helps medical professionals
+as a supporting tool without intending to replace them.
+The project follows the Software Development Life Cycle (SDLC) due to the vast acceptance
+and implementation of the method in the development industry. SDLC is a popular software
+engineering framework that promises accuracy, reliability and sustainability of a software system
+through sequential and well-defined development phases\cite{Gurung2020}.
+
+\begin{table}[h]
+\centering
+\caption{Work Plan According to Software Development Life Cycle (SDLC)}
+\begin{tabular}{|c|c|p{7cm}|}
+\hline
+\textbf{Duration} & \textbf{Phase} & \textbf{Activities} \\ \hline
+
+Month 1--2 & Requirement Analysis & 
+Problem analysis, literature review, requirement specification \\ \hline
+
+Month 3--4 & System Design & 
+SDLC flow, architecture design, database design, and UI design \\ \hline
+
+Month 5--8 & Development & 
+Image processing, RAG integration, web development, module integration \\ \hline
+
+Month 9--10 & Testing and Evaluation & 
+System testing and performance evaluation \\ \hline
+
+Month 11 & Deployment and Feedback & 
+Web deployment, user feedback review, and system validation \\ \hline
+
+Month 12 & Documentation & 
+Final report writing and submission \\ \hline
+
+\end{tabular}
+\end{table}
+
+\textbf{Project Features}
+
+\begin{enumerate}
+    \item Doctor’s Medical License (BMDC) verification system.
+    \item Admin and doctor login system.
+    \item Daily scan statistics.
+    \item Recent diagnosis activity details.
+    \item Medical image upload option (X-ray).
+    \item Patient information input (age, gender).
+    \item AI-generated diagnostic report.
+    \item Retrieval-Augmented Generation (RAG) based evidence support.
+    \item Generated reports with evidence-based references.
+    \item Interactive AI assistant.
+    \item Chat option for follow-up questions and diagnosis support.
+    \item Report verification system.
+    \item Diagnostic report download in PDF format.
+    \item Searchable history of patient diagnoses.
+    \item Report filtering options.
+    \item Feedback and error reporting by doctors.
+    \item Dark mode and light mode interface options.
+\end{enumerate}
+\section{Scopes and Challenges}
+\subsection{Scopes of the Project}
+
+\begin{enumerate}
+    \item The primary goal of the project is to build a web-based medical image report generation system that uses a pre-built RAG framework. This project is designed as a Clinical Decision Support System (CDSS), not a replacement of radiologists or medical professionals.
+    
+    \item The system uses retrieved previous medical reports to increase factual accuracy and reduce hallucination.
+    
+    \item Future scope includes:
+    \begin{itemize}
+        \item \textbf{Integrating a new RAG framework:} Instead of using a pre-built RAG engine, a new RAG framework built from scratch can be integrated in the project which will add more depth to the project.
+        
+        \item \textbf{Multi-lingual platform:} Initially, the web platform uses English language on the interface. A multilingual interface can be developed for further user support.
+        
+        \item \textbf{Modality:} The current version focuses solely on 2D Chest X-ray imaging and does not support MRI or CT scans which can be integrated in future.
+    \end{itemize}
+\end{enumerate}
+\subsection{Challenges of the Project}
+
+\begin{enumerate}
+    \item Minimizing hallucination and maximizing factual correctness in reports are the most crucial challenges.
+    
+    \item Integrating image processing, retrieval mechanisms, and language models altogether increases the project complexity.
+    
+    \item High-quality annotated medical imaging datasets have limited availability.
+    
+    \item Ethical use of the technology and maintaining the privacy of patients’ medical information.
+    
+    \item  quality performance and addressing latency constraints in a web-based deployment environment.
+\end{enumerate}
+
+
+
+
+
+\nomenclature{$RAG-$}{ Retrieval-Augmented Generation}
+\nomenclature{$AI- $}{Artificial Intelligence}
+\nomenclature{$CDSS-  $}{Clinical Decision Support System}
+\nomenclature{$CNN - $}{ Convolutional Neural Network}
+\nomenclature{$CT-  $}{ Computed Tomography}
+\nomenclature{$LLM-  $}{Large Language Model}
+\nomenclature{$MRI- $}{ Magnetic Resonance Imaging}
+\nomenclature{$NLP-  $}{Natural Language Processing}
+\nomenclature{$ViT- $}{Vision Transformer}
+\nomenclature{$RGAR-  $}{Recurrence Generation-Augmented Retrieval}
+\nomenclature{$PubMedBERT-  $}{ Domain-specific BERT model trained on PubMed articles}

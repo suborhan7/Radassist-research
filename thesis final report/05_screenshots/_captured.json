@@ -1,0 +1,200 @@
+[
+  {
+    "file": "01-landing-dark.png",
+    "route": "/",
+    "state": "signed out",
+    "caption": "The public landing page, the first screen a new user meets."
+  },
+  {
+    "file": "02-registration-dark.png",
+    "route": "/register",
+    "state": "signed out, empty form",
+    "caption": "Doctor registration: name, email, BMDC number, password."
+  },
+  {
+    "file": "03-login-dark.png",
+    "route": "/login",
+    "state": "signed out, empty form",
+    "caption": "Sign in with email and password."
+  },
+  {
+    "file": "04-queue-dark.png",
+    "route": "/dashboard",
+    "state": "worklist with this doctor's reports",
+    "caption": "The queue: every report this doctor owns, newest first."
+  },
+  {
+    "file": "05-find-patient-dark.png",
+    "route": "/patients/search",
+    "state": "empty search",
+    "caption": "Find patient by code or name before starting an examination."
+  },
+  {
+    "file": "06-patients-dark.png",
+    "route": "/patients",
+    "state": "patient list",
+    "caption": "All patients this doctor has examined."
+  },
+  {
+    "file": "07-register-patient-dark.png",
+    "route": "/patients/new",
+    "state": "empty form",
+    "caption": "Registering a new patient record."
+  },
+  {
+    "file": "08-patient-profile-dark.png",
+    "route": "/patients/9b977adac2a5479cb3bd9716cf0ce44b",
+    "state": "PAT-000035, with prior studies",
+    "caption": "Patient profile: demographics and the list of prior studies."
+  },
+  {
+    "file": "09-new-examination-dark.png",
+    "route": "/patients/1744d1dede864de596c1e1b1063b8e8c/upload",
+    "state": "empty drop target",
+    "caption": "New examination: the film drop target before an image is chosen."
+  },
+  {
+    "file": "10-upload-selected-dark.png",
+    "route": "/patients/1744d1dede864de596c1e1b1063b8e8c/upload",
+    "state": "chest X-ray selected, PA projection declared",
+    "caption": "The selected film with the declared projection, before the pipeline runs."
+  },
+  {
+    "file": "11-generate-in-progress-dark.png",
+    "route": "/patients/1744d1dede864de596c1e1b1063b8e8c/upload",
+    "state": "pipeline running, per-step timings live",
+    "caption": "Generate in progress: the four pipeline steps with elapsed times."
+  },
+  {
+    "file": "12-questionnaire-dark.png",
+    "route": "/patients/1744d1dede864de596c1e1b1063b8e8c/upload",
+    "state": "optional clinical questionnaire",
+    "caption": "The optional questionnaire offered after retrieval; it can be skipped."
+  },
+  {
+    "file": "13-generate-complete-dark.png",
+    "route": "/patients/1744d1dede864de596c1e1b1063b8e8c/upload",
+    "state": "all four steps done, result offered",
+    "caption": "Generation complete; the reader chooses when to open the result."
+  },
+  {
+    "file": "14-result-partial-dark.png",
+    "route": "/workspace/{id}/report",
+    "state": "consistency = partial (English, pre-Gate-B)",
+    "caption": "Result page. Consistency reads 'partial': the transplant check is not yet calibrated."
+  },
+  {
+    "file": "15-result-violations-dark.png",
+    "route": "/workspace/{id}/report",
+    "state": "consistency = violations",
+    "caption": "Result page with a consistency violation raised by the temporal check."
+  },
+  {
+    "file": "16-result-warnings-dark.png",
+    "route": "/workspace/{id}/report",
+    "state": "validation warnings, consistency = not_run",
+    "caption": "Result page carrying semantic validation warnings on a pre-v1.2 report."
+  },
+  {
+    "file": "17-result-below-floor-dark.png",
+    "route": "/workspace/{id}/report",
+    "state": "retrieval support = below_floor",
+    "caption": "Result page where retrieval support fell below the floor."
+  },
+  {
+    "file": "18-full-report-expanded-dark.png",
+    "route": "/workspace/{id}/report",
+    "state": "full report disclosure expanded",
+    "caption": "The full seven-field report, expanded from the summary."
+  },
+  {
+    "file": "19-evidence-tab-evidence-dark.png",
+    "route": "/workspace/{id}/evidence",
+    "state": "Evidence tab: retrieved neighbours",
+    "caption": "Evidence page, Evidence tab: the k retrieved neighbour cases and their similarity."
+  },
+  {
+    "file": "20-evidence-tab-agreement-dark.png",
+    "route": "/workspace/{id}/evidence",
+    "state": "Agreement tab: label voting",
+    "caption": "Evidence page, Agreement tab: voted labels and the agreement score."
+  },
+  {
+    "file": "21-evidence-tab-alternatives-dark.png",
+    "route": "/workspace/{id}/evidence",
+    "state": "Alternatives tab",
+    "caption": "Evidence page, Alternatives tab: labels that did not win the vote."
+  },
+  {
+    "file": "22-explainability-idle-dark.png",
+    "route": "/reports/{id}/explain",
+    "state": "before a question is asked",
+    "caption": "Explainability: the grounding questions a doctor may ask about a draft."
+  },
+  {
+    "file": "23-explainability-answered-dark.png",
+    "route": "/reports/{id}/explain",
+    "state": "question asked and answered",
+    "caption": "Explainability after an answer: the question and the model's grounded reply."
+  },
+  {
+    "file": "24-compare-dark.png",
+    "route": "/reports/{id}/compare",
+    "state": "current vs prior study",
+    "caption": "Compare: deterministic Resolved/Persistent/New split plus an LLM narrative."
+  },
+  {
+    "file": "25-print-preview-dark.png",
+    "route": "/workspace/{id}/report",
+    "state": "print media emulation, English",
+    "caption": "Print / Save as PDF: the printed report under print media."
+  },
+  {
+    "file": "26-settings-profile-dark.png",
+    "route": "/settings",
+    "state": "profile and workspace defaults",
+    "caption": "Settings: this build's Settings screen IS the profile screen; there is no separate /profile route."
+  },
+  {
+    "file": "27-report-bengali-dark.png",
+    "route": "/workspace/{id}/report",
+    "state": "language = bn, consistency = not_run",
+    "caption": "A Bengali report. The consistency block reads 'not run' — the checks are English-only."
+  },
+  {
+    "file": "28-login-light.png",
+    "route": "/login",
+    "state": "signed out",
+    "caption": "Sign in, light theme."
+  },
+  {
+    "file": "29-queue-light.png",
+    "route": "/dashboard",
+    "state": "worklist",
+    "caption": "The queue, light theme."
+  },
+  {
+    "file": "30-patient-profile-light.png",
+    "route": "/patients/{id}",
+    "state": "with prior studies",
+    "caption": "Patient profile, light theme."
+  },
+  {
+    "file": "31-result-partial-light.png",
+    "route": "/workspace/{id}/report",
+    "state": "consistency = partial",
+    "caption": "Result page, light theme."
+  },
+  {
+    "file": "32-evidence-light.png",
+    "route": "/workspace/{id}/evidence",
+    "state": "Evidence tab",
+    "caption": "Evidence page, light theme."
+  },
+  {
+    "file": "33-settings-light.png",
+    "route": "/settings",
+    "state": "profile",
+    "caption": "Settings / profile, light theme."
+  }
+]

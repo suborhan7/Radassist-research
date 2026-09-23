@@ -1,0 +1,43 @@
+%% 05b_activity_generation_review -- activity flow, part 2 of 3: generation
+%% and the three validation layers. Part 3 is 05c_activity_doctor_review.mmd.
+flowchart TB
+  GO(["from part 1"]):::term2
+  D5{"questionnaire<br/>skipped?"}:::dec
+  A8["answer questions<br/>+ clinical notes"]:::act
+  A9["build context and prompt,<br/>call the LLM"]:::act
+  D6{"<b>structural</b><br/>7 markers valid?"}:::dec
+  D7{"retries left?<br/>budget 2"}:::dec
+  A12["correction prompt<br/><b>attempt count not recorded</b>"]:::act
+  R5["<b>422</b> budget spent<br/>no report is created"]:::rej
+  D8{"<b>semantic</b> warnings?<br/>advisory, <b>gates nothing</b>"}:::dec
+  A14["warnings attached and shown<br/><b>without a disclosure</b>"]:::act
+  D9{"language = en?"}:::dec
+  A16["<b>not_run</b><br/>never a green tick"]:::act
+  D10{"<b>consistency</b><br/>checks_run vs applicable"}:::dec
+  AA["<b>violations</b>"]:::act
+  AB["<b>partial</b> -- not a pass<br/>transplant never runs<br/><b>every English report</b>"]:::act
+  AC["<b>clean</b> -- the only pass"]:::act
+  ABS["<b>absent by design</b>: no branch exists.<br/>A violation triggers NO retry.<br/>Gate A: 17/477, acted on by nothing."]:::absent
+  A18["server-authored disclaimer,<br/>format, persist <b>AI_DRAFT</b>"]:::act
+  GO2(["continue in part 3"]):::term2
+  GO --> D5
+  D5 -->|no| A8 --> A9
+  D5 -->|yes| A9 --> D6
+  D6 -->|no| D7
+  D7 -->|yes| A12 --> A9
+  D7 -->|no| R5
+  D6 -->|yes| D8
+  D8 -->|yes| A14 --> D9
+  D8 -->|no| D9
+  D9 -->|no| A16 --> A18
+  D9 -->|yes| D10
+  D10 -->|any violation| AA --> A18
+  D10 -->|strict subset| AB --> A18
+  D10 -->|all ran| AC --> A18
+  AA -.-> ABS
+  A18 --> GO2
+  classDef act    fill:#f2f2f2,stroke:#000,stroke-width:1.5px,color:#000
+  classDef dec    fill:#ffffff,stroke:#000,stroke-width:3px,color:#000
+  classDef rej    fill:#bdbdbd,stroke:#000,stroke-width:2.5px,stroke-dasharray:5 3,color:#000
+  classDef term2  fill:#ffffff,stroke:#000,stroke-width:3px,color:#000
+  classDef absent fill:#ffffff,stroke:#000,stroke-width:2px,stroke-dasharray:2 4,color:#000
