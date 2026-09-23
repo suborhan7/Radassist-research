@@ -1,16 +1,18 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
+import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
   ApiError,
   generateReport,
+  getPatientHistory,
   getQuestionnaire,
   retrievalSessionImageUrl,
   retrieveWithProgress,
 } from "@/lib/api-client";
 import { StepProgress, type StepStatus, type WorkflowStepDisplay } from "@/components/workflow/StepProgress";
-import { Button } from "@/components/ui/button";
+import { Button, BUTTON_BASE, SIZE, VARIANT } from "@/components/ui/button";
 import { PhiRevealSlider } from "@/components/ui/phi-reveal-slider";
 import { useDoctor } from "@/lib/doctor";
 import { BackLink } from "@/components/layout/screen-header";
@@ -66,7 +68,6 @@ export default function UploadFlowPage() {
   const { t, lang } = useT();
   const { topK, questionnaireSkip } = useDoctor();
   const params = useParams<{ patientId: string }>();
-  const router = useRouter();
   const patientId = params.patientId;
 
   const [file, setFile] = useState<File | null>(null);
@@ -87,6 +88,15 @@ export default function UploadFlowPage() {
   const [phase, setPhase] = useState<"form" | "running">("form");
   const [steps, setSteps] = useState<Record<WorkflowStepId, StepState>>(initialSteps());
   const [sessionId, setSessionId] = useState<string | null>(null);
+  // Free-text context the questionnaire does not cover. The API has always
+  // accepted `clinical_notes` and this page has always sent "" -- the field
+  // existed end to end with nothing to fill it.
+  const [clinicalNotes, setClinicalNotes] = useState("");
+  // The report this visit produced, so Generate can hand over rather than
+  // teleport. Distinct from `existingReportId` below, which is what a RETURN
+  // visit finds already sitting there.
+  const [generatedReportId, setGeneratedReportId] = useState<string | null>(null);
+  const [existingReportId, setExistingReportId] = useState<string | null>(null);
   const [questionnaire, setQuestionnaire] = useState<QuestionnaireResponse | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const questionnaireStepStart = useRef<number>(0);
@@ -207,10 +217,14 @@ export default function UploadFlowPage() {
         // Follows the global language toggle: বাংলা drafts the report in Bengali.
         language: lang,
         questionnaire_answers: finalAnswers,
-        clinical_notes: "",
+        clinical_notes: clinicalNotes.trim(),
       });
       updateStep("generating_report", { status: "done", elapsedMs: performance.now() - genStart });
-      router.push(`/reports/${result.report_id}`);
+      // Deliberately NOT router.push: the reader stays on Generate and chooses
+      // when to move on. Auto-navigating threw away the pipeline's own record
+      // of what just happened -- the per-step timings were on screen for a
+      // frame and then gone.
+      setGeneratedReportId(result.report_id);
     } catch (err) {
       updateStep("generating_report", {
         status: "error",
@@ -232,6 +246,27 @@ export default function UploadFlowPage() {
     );
     void proceedToGeneration(Object.keys(nonEmpty).length > 0 ? nonEmpty : null, sessionId);
   }
+
+  // A RETURN VISIT. "Show View result immediately if a report already exists"
+  // cannot be answered from the session -- no endpoint maps a session to its
+  // report, and the report list carries no session_id. The patient's history
+  // does answer it, and is the same list the patient profile already shows,
+  // so the newest report for this patient is what Generate offers.
+  useEffect(() => {
+    let cancelled = false;
+    getPatientHistory(patientId)
+      .then((history) => {
+        if (cancelled) return;
+        const newest = [...history].sort((a, b) =>
+          b.created_at.localeCompare(a.created_at),
+        )[0];
+        setExistingReportId(newest ? newest.id : null);
+      })
+      .catch(() => setExistingReportId(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [patientId]);
 
   const stepDisplays: WorkflowStepDisplay[] = STEP_ORDER.map((id) => ({
     id,
@@ -347,6 +382,32 @@ export default function UploadFlowPage() {
                 </p>
               </fieldset>
 
+              <label className="flex flex-col gap-8">
+                <span className="font-mono text-eyebrow uppercase tracking-[0.14em] text-text-tertiary">
+                  {t("upload.clinicalNotes")}
+                </span>
+                <textarea
+                  value={clinicalNotes}
+                  onChange={(e) => setClinicalNotes(e.target.value)}
+                  rows={3}
+                  className="w-full resize-y rounded-field border border-hairline bg-bg-raised p-12 text-body-read text-text-primary"
+                />
+                <span className="text-sm leading-relaxed text-text-secondary">
+                  {t("upload.clinicalNotesHint")}
+                </span>
+              </label>
+
+              {/* A report already exists for this patient, so offer it rather
+                  than making a second one the only way forward. */}
+              {existingReportId && (
+                <Link
+                  href={`/workspace/${existingReportId}/report`}
+                  className={cn(BUTTON_BASE, VARIANT.secondary, SIZE.lg, "w-full")}
+                >
+                  {t("workspace.viewLatestResult")}
+                </Link>
+              )}
+
               <Button
                 type="submit"
                 variant="primary"
@@ -361,6 +422,19 @@ export default function UploadFlowPage() {
               <div className="flex-none border-b border-hairline p-28">
                 <h2 className="mb-18 text-panel text-text-primary">{t("upload.running")}</h2>
                 <StepProgress steps={stepDisplays} />
+
+                {/* The handover. The page used to navigate away by itself the
+                    instant generation finished, which threw the pipeline's own
+                    timings off screen before anyone could read them. The reader
+                    now decides when to move on, and the step list stays. */}
+                {generatedReportId && (
+                  <Link
+                    href={`/workspace/${generatedReportId}/report`}
+                    className={cn(BUTTON_BASE, VARIANT.primary, SIZE.lg, "mt-18 w-full")}
+                  >
+                    {t("workspace.viewResult")}
+                  </Link>
+                )}
               </div>
 
               <div className="flex-1 overflow-auto p-28">

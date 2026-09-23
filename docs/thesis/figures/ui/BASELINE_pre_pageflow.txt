@@ -1,0 +1,14 @@
+docs/thesis/figures/ui -- baseline recorded before the page-based flow refactor
+captured from the single-screen workspace; retained until the new set is taken
+
+5b78ed5f5e3f057640d1a28d272a3df8ec73f6f52e1a22f0b635d4f204e97c46      4094  README.md
+29aaa3e447f2ced29fdc5397367c559893c9c53cdcc906a73fcb1d4632a4f105    200383  dark-1-summary.png
+8467cb80be579050709055787c10f3831b7909940afaddd3e2cacc10a956a9cb    201821  dark-2-full-report-expanded.png
+0d71e12dbf480548b0624252b23849d586015b97f64698415857e6757f577ed2    205439  dark-3-sidebar-expanded.png
+4c7c3cd84061a9d367141b61cf0abbf0a33f88f41adc218d22c7000bcdd47387    200387  dark-4-sidebar-collapsed.png
+668bb6019d7a143f8f215eade929704fd5f7c97ff85934d0c1ba16cdcc77a440    230507  dark-5-warnings-full-report-collapsed.png
+f5832fe968fa34d2273ddec62ec089a788f21d6d0c77fec32daee1cd99094cb6    201088  light-1-summary.png
+e3e069d9b4055944aa4e63b5e1a500d10234df157534192b832ae443ff95ce53    202217  light-2-full-report-expanded.png
+c3abe8a686a5673820605378922e3fa42726ba3fc451ae984b7fcc7409ae6e09    203266  light-3-sidebar-expanded.png
+dc6d77fa7418e27d924281d435ca28504a5e7b494ebde5ce9538211f3f634479    201091  light-4-sidebar-collapsed.png
+e271b3375a37b8a16b68431df979e415ac1f0713788f2e16d5c474b17e0ec831    231739  light-5-warnings-full-report-collapsed.png

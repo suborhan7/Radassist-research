@@ -46,6 +46,10 @@ export function PrintableReport({
     validation: { is_clean: boolean; warnings: string[] };
     consistency?: ConsistencyBlock | null;
     finalized_at?: string | null;
+    /** Evidence provenance. Already on the report; printed, not re-fetched. */
+    retrieved_cases?: unknown[];
+    retrieval_support?: string | null;
+    top1_similarity?: number | null;
   };
   patientName: string | null;
   patientCode: string | null;
@@ -118,6 +122,32 @@ export function PrintableReport({
             <p>{report.content[key]?.trim() || t("compare.none")}</p>
           </section>
         ))}
+
+        {/* EVIDENCE PROVENANCE ON PAPER.
+            The disclaimer already carries the backend's similarity/threshold
+            sentence, but how many cases the draft was retrieved from, and
+            whether the nearest of them cleared the support floor, were screen
+            only -- they lived in the workspace footer and the evidence
+            sidebar. A printout that drops them is a report that looks more
+            self-standing than it is, so they print too. Every value is read
+            off the report object, so this costs no request and does not
+            depend on the evidence page having been visited. */}
+        <section className="rr-print-section" data-print-section="provenance">
+          <h2>{t("print.provenance")}</h2>
+          <p>
+            {t("workspace.draftedFrom", { count: report.retrieved_cases?.length ?? 0 })}
+            {report.top1_similarity != null &&
+              ` ${t("print.topSimilarity", {
+                pct: (report.top1_similarity * 100).toFixed(1),
+                support:
+                  report.retrieval_support === "below_floor"
+                    ? t("support.below")
+                    : report.retrieval_support === "at_or_above_floor"
+                      ? t("support.atOrAbove")
+                      : t("support.notRecorded"),
+              })}`}
+          </p>
+        </section>
 
         <section className="rr-print-section rr-print-validation" data-print-section="validation">
           <h2>{t("workspace.validation")}</h2>

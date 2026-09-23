@@ -105,12 +105,14 @@ export function buildNav(pathname: string): NavItem[] {
   const patientMatch = pathname.match(/^\/patients\/([^/]+)/);
   const patientId =
     patientMatch && patientMatch[1] !== "search" && patientMatch[1] !== "new" ? patientMatch[1] : null;
-  const reportMatch = pathname.match(/^\/reports\/([^/]+)/);
+  // Both shapes: the workspace lives at /workspace/{id}/... and explain and
+  // compare are still /reports/{id}/....
+  const reportMatch = pathname.match(/^\/(?:reports|workspace)\/([^/]+)/);
   const reportId = reportMatch ? reportMatch[1] : null;
 
   const isPatientProfile = patientId != null && /^\/patients\/[^/]+$/.test(pathname);
   const isUpload = patientId != null && /^\/patients\/[^/]+\/upload$/.test(pathname);
-  const isWorkspace = reportId != null && /^\/reports\/[^/]+$/.test(pathname);
+  const isWorkspace = reportId != null && /^\/workspace\/[^/]+(?:\/(?:report|evidence))?$/.test(pathname);
   const isExplain = reportId != null && /\/explain$/.test(pathname);
   const isCompare = reportId != null && /\/compare$/.test(pathname);
 
@@ -135,7 +137,7 @@ export function buildNav(pathname: string): NavItem[] {
       key: "workspace",
       label: "nav.workspace",
       Icon: WorkspaceIcon,
-      href: reportId ? `/reports/${reportId}` : PICK_REPORT,
+      href: reportId ? `/workspace/${reportId}/report` : PICK_REPORT,
       active: isWorkspace,
       requiresKey: reportId ? undefined : "nav.requiresReport",
     },

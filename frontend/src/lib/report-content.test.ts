@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { hasReportContent, NARRATIVE_FIELDS } from "./report-content";
+import { EDITABLE_REPORT_FIELDS } from "./report-fields";
 
 const src = (rel: string) =>
   readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf-8").replace(/\r\n/g, "\n");
@@ -46,24 +47,18 @@ describe("hasReportContent", () => {
 });
 
 describe("the narrative field list does not drift from the canonical one", () => {
-  it("matches EDITABLE_REPORT_FIELDS in the workspace route", () => {
-    // The canonical copy lives in a route module that pulls next/navigation on
-    // import and cannot be loaded here, so it is read as text -- the same
-    // approach report-document-view.test.ts already uses for the 7-field list.
-    const page = src("../app/reports/[reportId]/page.tsx");
-    const block = page.slice(
-      page.indexOf("export const EDITABLE_REPORT_FIELDS = ["),
-      page.indexOf("] as const satisfies readonly ReportContentKey[]"),
-    );
-    expect(block.length, "EDITABLE_REPORT_FIELDS not found in page.tsx").toBeGreaterThan(0);
-
-    const canonical = [...block.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
-    expect(canonical).toEqual([...NARRATIVE_FIELDS]);
+  it("matches EDITABLE_REPORT_FIELDS exactly", () => {
+    // This used to read the workspace ROUTE as text, because the canonical
+    // list lived there and loading that module pulls in next/navigation. The
+    // list now lives in lib/report-fields.ts, which imports nothing from
+    // next/*, so the two can simply be compared as values. Same invariant,
+    // no substring matching.
+    expect([...NARRATIVE_FIELDS]).toEqual([...EDITABLE_REPORT_FIELDS]);
   });
 });
 
 describe("the print control is honest about what it is", () => {
-  const page = src("../app/reports/[reportId]/page.tsx");
+  const page = src("../app/workspace/[reportId]/report/page.tsx");
   const en = src("./i18n/dictionaries/en.ts");
 
   it("is gated on there being something to print", () => {

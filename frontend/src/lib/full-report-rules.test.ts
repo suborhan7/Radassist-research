@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { shouldForceFullReport, fullReportForcedReasonKey } from "./full-report-rules";
+import { SUMMARY_FIELDS, FULL_REPORT_FIELDS } from "./report-fields";
+import { REPORT_CONTENT_FIELDS } from "@/components/report/report-document-view";
 
 const NONE = { editing: false, regenerating: false, finalizing: false, printing: false };
 
@@ -60,25 +62,36 @@ describe("fullReportForcedReasonKey", () => {
 describe("the workspace keeps conclusions and alerts out of the disclosure", () => {
   // Normalised to LF: the working tree is CRLF on Windows, and an assertion
   // that silently depends on the checkout's line endings is not an assertion.
+  //
+  // The workspace split into three routes, so these assertions moved with the
+  // thing they protect: the summary-first rule now lives on the report page,
+  // and the field partition moved out of a route file entirely into
+  // lib/report-fields.ts -- which is why the first invariant below is now a
+  // value comparison rather than a substring match.
   const page = readFileSync(
-    fileURLToPath(new URL("../app/reports/[reportId]/page.tsx", import.meta.url)),
+    fileURLToPath(new URL("../app/workspace/[reportId]/report/page.tsx", import.meta.url)),
     "utf-8",
   ).replace(/\r\n/g, "\n");
 
   const at = (needle: string) => {
     const i = page.indexOf(needle);
-    expect(i, `expected to find ${needle} in page.tsx`).toBeGreaterThan(-1);
+    expect(i, `expected to find ${needle} on the report page`).toBeGreaterThan(-1);
     return i;
   };
 
   it("splits the canonical 7 fields rather than restating them", () => {
     // A field added to REPORT_CONTENT_FIELDS must land somewhere by itself.
-    expect(page).toContain("CONTENT_FIELDS.filter((f) => SUMMARY_KEY_SET.has(f.key))");
-    expect(page).toContain("CONTENT_FIELDS.filter((f) => !SUMMARY_KEY_SET.has(f.key))");
+    // Asserted on the values now that they are importable, which is stronger
+    // than matching the `.filter(...)` call that produces them.
+    expect([...SUMMARY_FIELDS, ...FULL_REPORT_FIELDS].map((f) => f.key).sort()).toEqual(
+      REPORT_CONTENT_FIELDS.map((f) => f.key).sort(),
+    );
+    const summary = SUMMARY_FIELDS.map((f) => f.key);
+    expect(FULL_REPORT_FIELDS.some((f) => summary.includes(f.key))).toBe(false);
   });
 
   it("puts only impression and recommendation in the summary", () => {
-    expect(page).toContain('const SUMMARY_KEYS = ["impression", "recommendation"]');
+    expect(SUMMARY_FIELDS.map((f) => f.key)).toEqual(["impression", "recommendation"]);
   });
 
   it("renders the summary, the warnings and the consistency verdict before the disclosure", () => {
@@ -108,21 +121,22 @@ describe("the workspace keeps conclusions and alerts out of the disclosure", () 
     expect(page).toContain("usePersistedToggle(\n    currentDoctorId,\n    FULL_REPORT_PREF,");
   });
 
-  it("opens with the evidence panel docked, and never remembers otherwise", () => {
-    // The evidence panel must dock on every load of every report. The way
-    // that is guaranteed is by NOT persisting it at all -- a stored value is
-    // the only thing that could make one report open differently from the
-    // next, so the absence of one is the mechanism, not an oversight.
+  it("does not show the evidence beside the report at all", () => {
+    // WHAT THIS INVARIANT USED TO BE. The evidence panel sat in a sidebar next
+    // to the report and had to start docked on every load, which was enforced
+    // by NOT persisting its state -- a stored value was the only thing that
+    // could make one report open differently from the next.
     //
-    // The component test cannot see this: it supplies its own state. So the
-    // page is pinned directly -- docked initial state, and no storage key or
-    // persisted hook anywhere near the evidence panel.
-    expect(page).toContain("const [evidenceCollapsed, setEvidenceCollapsed] = useState(true)");
-    // The DECLARATION and the USE, not the bare word: the comment above the
-    // full-report key explains why the evidence one is absent, and naming it
-    // there is the documentation, not a leftover.
-    expect(page).not.toMatch(/const EVIDENCE_PREF\s*=/);
-    expect(page).not.toMatch(/usePersistedToggle\([\s\S]{0,120}?EVIDENCE_PREF/);
+    // WHERE IT LIVES NOW. The evidence is its own route. "Docked by default"
+    // is no longer a default that could drift; the report page simply does not
+    // render the evidence, and the only way to it is an explicit link. That is
+    // the same guarantee made structurally instead of by a stored flag, so the
+    // assertion is structural too.
+    expect(page).not.toContain("<EvidenceSidebar");
+    expect(page).not.toContain("railTab");
+    expect(page).not.toContain("AgreementBadge");
+    expect(page).not.toContain("RetrievalSupportNotice");
+    expect(page).toContain("workspace.viewEvidence");
 
     // The full-report disclosure is the deliberate counter-example and keeps
     // its storage, so this is a decision about one panel rather than the

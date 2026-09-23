@@ -136,7 +136,7 @@ export default function DashboardPage() {
               {hasAwaiting && stats?.oldest_awaiting_review_report_id && (
                 <div className="mt-14 flex flex-wrap items-center gap-14">
                   <Link
-                    href={`/reports/${stats.oldest_awaiting_review_report_id}`}
+                    href={`/workspace/${stats.oldest_awaiting_review_report_id}/report`}
                     className={cn(BUTTON_BASE, VARIANT.primary, SIZE.md)}
                   >
                     {t("dashboard.openOldest")}
@@ -212,7 +212,7 @@ export default function DashboardPage() {
                     >
                       <div className="min-w-0">
                         <Link
-                          href={`/reports/${item.report_id}`}
+                          href={`/workspace/${item.report_id}/report`}
                           className="truncate text-base font-medium text-text-primary after:absolute after:inset-0 after:content-['']"
                         >
                           {item.patient_name ?? t("dashboard.noPatientLinked")}

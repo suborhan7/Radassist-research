@@ -1,5 +1,5 @@
 import { diffWordsWithSpace, type Change } from "diff";
-import { EDITABLE_REPORT_FIELDS, type EditableReportField } from "@/app/reports/[reportId]/page";
+import { EDITABLE_REPORT_FIELDS, type EditableReportField } from "@/lib/report-fields";
 
 export interface SectionDiff {
   field: EditableReportField;

@@ -100,7 +100,7 @@ export default function ExplainPage() {
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-bg-app">
       <header className="flex h-header-bar flex-none items-center gap-14 border-b border-hairline px-30">
         {/* Leading back arrow, same control and position as every other screen. */}
-        <BackLink href={`/reports/${reportId}`} labelKey="compare.backToWorkspace" />
+        <BackLink href={`/workspace/${reportId}/report`} labelKey="compare.backToWorkspace" />
         <h1 className="text-screen-title text-text-primary">{t("nav.explain")}</h1>
         <span className="flex-1" />
       </header>

@@ -32,7 +32,8 @@ describe("the measure is a token, not an arbitrary value", () => {
   const files = [
     "./report-document-view.tsx",
     "./editable-report-section.tsx",
-    "../../app/reports/[reportId]/page.tsx",
+    "../../app/workspace/[reportId]/report/page.tsx",
+    "../../app/workspace/[reportId]/evidence/page.tsx",
   ];
 
   for (const file of files) {
@@ -55,13 +56,18 @@ describe("the measure is a token, not an arbitrary value", () => {
 });
 
 describe("the evidence panel is set like the report column", () => {
-  const page = src("../../app/reports/[reportId]/page.tsx");
-
-  // The panel body between the sidebar's opening and closing tags.
-  const panel = page.slice(
-    page.indexOf("<EvidenceSidebar"),
-    page.indexOf("</EvidenceSidebar>"),
-  );
+  // The evidence used to be a sidebar inside the workspace page, and this
+  // sliced that page between the <EvidenceSidebar> tags. That slice contained
+  // the panel's CONTENT only -- the tab row lived inside the sidebar
+  // component, in a different file, and was never covered.
+  //
+  // The evidence is a route now and the tabs are in the same file, so the
+  // slice has to keep excluding them or it would start asserting about tab
+  // chrome, which this invariant was never about. `text-sm` on a tab label is
+  // correct; `text-sm` on a retrieved case's findings is the override this
+  // catches. The content container is the equivalent boundary.
+  const evidencePage = src("../../app/workspace/[reportId]/evidence/page.tsx");
+  const panel = evidencePage.slice(evidencePage.indexOf('<div className="flex-1 overflow-auto'));
 
   it("is a section of the page that this test actually found", () => {
     expect(panel.length).toBeGreaterThan(500);

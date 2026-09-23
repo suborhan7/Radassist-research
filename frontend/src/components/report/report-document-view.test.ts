@@ -29,7 +29,12 @@ describe("REPORT_CONTENT_FIELDS (canonical 7-field label list)", () => {
   it("no consumer redeclares its own copy of the list", () => {
     const repoSrc = fileURLToPath(new URL("../../..", import.meta.url));
 
-    const pageSource = readFileSync(`${repoSrc}/src/app/reports/[reportId]/page.tsx`, "utf-8");
+    // The workspace split into three routes; the report page is the one that
+    // renders the field list, so it is the one that must not restate it.
+    const pageSource = readFileSync(
+      `${repoSrc}/src/app/workspace/[reportId]/report/page.tsx`,
+      "utf-8",
+    );
     const compareSource = readFileSync(
       `${repoSrc}/src/app/reports/[reportId]/compare/page.tsx`,
       "utf-8",
@@ -45,11 +50,13 @@ describe("REPORT_CONTENT_FIELDS (canonical 7-field label list)", () => {
     expect(pageSource).not.toMatch(duplicateDeclarationPattern);
     expect(compareSource).not.toMatch(duplicateDeclarationPattern);
 
-    // The workspace renders all 7 sections, so it must import the canonical
-    // list rather than restate it.
-    expect(pageSource).toContain(
-      'import { REPORT_CONTENT_FIELDS as CONTENT_FIELDS } from "@/components/report/report-document-view"',
-    );
+    // The workspace renders all 7 sections, so it must reach the canonical
+    // list rather than restate it. It now does so through lib/report-fields,
+    // which partitions that same list into SUMMARY_FIELDS + FULL_REPORT_FIELDS
+    // -- the import moved, the rule did not.
+    expect(pageSource).toContain('from "@/lib/report-fields"');
+    expect(pageSource).toContain("SUMMARY_FIELDS");
+    expect(pageSource).toContain("FULL_REPORT_FIELDS");
 
     // Compare deliberately does NOT: the Reading Room redesign replaced its
     // side-by-side full-report dump with the two impressions (see that file's

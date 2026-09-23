@@ -125,7 +125,7 @@ export default function ComparePage() {
           screen now carries. One position, one behaviour -- a return control
           that sits somewhere different on each screen is the reason the
           workspace's was never found. */}
-      <BackLink href={`/reports/${reportId}`} labelKey="compare.backToWorkspace" />
+      <BackLink href={`/workspace/${reportId}/report`} labelKey="compare.backToWorkspace" />
       <h1 className="text-screen-title text-text-primary">{t("nav.compare")}</h1>
       {status === "done" && comparison && (
         <span className="whitespace-nowrap font-mono text-mono-meta-lg uppercase text-text-tertiary">

@@ -266,6 +266,9 @@ export const bn: Dict = {
   "print.status": "অবস্থা",
   "print.notRecorded": "রেকর্ড করা হয়নি",
   "print.finalized": "চূড়ান্ত",
+  "print.provenance": "প্রমাণের উৎস",
+  "print.topSimilarity": (p) =>
+    `নিকটতম উদ্ধারকৃত কেস ${String(p.pct)}% সমান — উদ্ধার সমর্থন: ${String(p.support)}।`,
   "print.footer": (p) =>
     `রিপোর্ট ${String(p.id)} · RadAssist-RAG দ্বারা তৈরি এবং রিপোর্টকারী রেডিওলজিস্ট দ্বারা পর্যালোচিত। এটি স্বয়ংক্রিয় রোগনির্ণয় নয়।`,
   "workspace.draftedFrom": (p) =>
@@ -279,6 +282,18 @@ export const bn: Dict = {
   "workspace.altNotePre": "এই তালিকা থেকে অনুপস্থিতির অর্থ কোনো পুনরুদ্ধার করা কেস লেবেলটি বহন করেনি।",
   "workspace.altNoteEmph": "এটি কোনো বর্জন নয়।",
   "workspace.altNotePost": "কেবল উপস্থিত লেবেলগুলি রিপোর্ট করা হয়, একটি সম্পূর্ণ ইতিবাচক বা নেতিবাচক শ্রেণিবিন্যাস নয়।",
+
+  // ── page-based workspace flow ─────────────────────────────────────────────
+  "workspace.stepGenerate": "তৈরি",
+  "workspace.stepReport": "রিপোর্ট",
+  "workspace.stepEvidence": "প্রমাণ",
+  "workspace.stepsAria": "ওয়ার্কস্পেস ধাপ",
+  "workspace.viewEvidence": "প্রমাণ দেখুন",
+  "workspace.backToReport": "রিপোর্টে ফিরুন",
+  "workspace.viewResult": "ফলাফল দেখুন",
+  "workspace.viewLatestResult": "সর্বশেষ ফলাফল দেখুন",
+  "upload.clinicalNotes": "ক্লিনিক্যাল নোট",
+  "upload.clinicalNotesHint": "ঐচ্ছিক। প্রশ্নাবলীতে যা নেই; রিপোর্ট তৈরির প্রেক্ষাপটে যুক্ত হবে।",
 
   // ── summary-first report panel ────────────────────────────────────────────
   "workspace.showFullReport": "সম্পূর্ণ রিপোর্ট দেখান",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeReportDiff } from "./report-diff";
-import { EDITABLE_REPORT_FIELDS, type EditableReportField } from "@/app/reports/[reportId]/page";
+import { EDITABLE_REPORT_FIELDS, type EditableReportField } from "@/lib/report-fields";
 
 function contentOf(overrides: Partial<Record<EditableReportField, string>> = {}): Record<EditableReportField, string> {
   const base: Record<EditableReportField, string> = {
@@ -25,8 +25,24 @@ describe("computeReportDiff", () => {
     for (const section of result.sections) {
       expect(section.changed).toBe(false);
     }
-    // every field's own list ordering matches EDITABLE_REPORT_FIELDS
-    expect(result.sections.map((s) => s.field)).toEqual([...EDITABLE_REPORT_FIELDS]);
+    // The LITERAL order, not [...EDITABLE_REPORT_FIELDS].
+    //
+    // This assertion used to compare against that constant, which cannot fail
+    // on ordering: computeReportDiff builds `sections` by mapping the same
+    // constant (report-diff.ts:94), so reordering it reorders both sides of
+    // the comparison at once. Found by negative control -- reversing two
+    // entries in EDITABLE_REPORT_FIELDS left the test green. Spelling the
+    // order out gives the assertion an independent reference.
+    expect(result.sections.map((s) => s.field)).toEqual([
+      "clinical_history",
+      "technique",
+      "findings",
+      "impression",
+      "recommendation",
+    ]);
+    // And the constant itself is still the thing the diff iterates, so a field
+    // added there must appear here too.
+    expect(result.sections).toHaveLength(EDITABLE_REPORT_FIELDS.length);
   });
 
   it("every word changed with zero vocabulary overlap: 5 of 5 sections changed, REP is 200% (not capped at 100%)", () => {

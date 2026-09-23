@@ -163,32 +163,24 @@
   --rail:           224px; /* always open, not collapsible */
   --header-bar:     60px;
   --header-landing: 66px;  /* sticky landing header variant */
-  --report-col:     530px;
-  --evidence-panel: 340px; /* workspace right panel */
+  /* The report column. 700px, which was --report-col-wide when the evidence
+     sidebar could be docked beside it; the sidebar became its own route, so
+     the report column has one width and no longer has a "narrow" case. */
+  --report-col:     700px;
   --explain-panel:  330px; /* explainability right panel */
 
-  /* ---- collapsible workspace panels.
-     --evidence-rail is the width the evidence panel docks to rather than
-     disappearing at: wide enough for one icon-only reopen control plus its
-     focus ring, which is the whole point — a panel that collapses to 0 is a
-     panel a reader cannot get back without knowing it was ever there.
-     --report-col-wide is what the report column grows to with the panel
-     docked. It is NOT report-col plus the full 292px freed, because the prose
-     inside is capped at --report-prose; past that the extra width becomes
-     gutter, not line. Film (flex-1) absorbs the remainder. ---- */
-  --evidence-rail:   48px;
-  --report-col-wide: 700px;
+  /* ---- film column floor. When the station was four columns
+     (rail + film + report + evidence sidebar) this was the number that made
+     them add up to exactly 1440: it had been an inline min-w-[360px], which
+     put the station at 1454px and pushed its last 14px -- the evidence
+     panel's own hide control -- off a 1440px screen.
 
-  /* ---- film column floor. 346px is not a taste value: it is what makes the
-     three-column station ADD UP to the 1440px frame declared above
-     (224 rail + 346 film + 530 report + 340 evidence = 1440). It was 360px,
-     written inline as an arbitrary min-w-[360px], which put the station at
-     1454px and pushed its last 14px off a 1440px screen. The column that
-     lived in those 14px was the evidence panel's hide control, so the one
-     affordance for putting the panel away was the one thing clipped — which
-     is how it came to be reported as missing. The horizontal scroll is still
-     there and still deliberate for monitors NARROWER than the station; what
-     changed is that the declared width is no longer one of them. ---- */
+     The sidebar is now its own route, so the report station is three columns
+     and the sum has slack: 224 rail + 346 film + 700 report = 1270. The floor
+     stays a token and stays 346 because it is still the smallest the film may
+     get before the radiograph stops being readable; what changed is that it is
+     now a minimum rather than an exact fit, and layout-tokens.test.ts asserts
+     the station FITS 1440 rather than equalling it. ---- */
   --film-min:        346px;
 
   /* ---- measure — the comfortable line length for continuous report prose,

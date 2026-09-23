@@ -159,7 +159,7 @@ export default function PatientProfilePage() {
                   </p>
                   <div className="mt-12 flex flex-wrap items-center gap-18">
                     <Link
-                      href={`/reports/${report.id}`}
+                      href={`/workspace/${report.id}/report`}
                       className="text-sm text-cyan transition-colors duration-hover hover:text-text-primary"
                     >
                       {t("patient.openReport")}
