@@ -14208,3 +14208,215 @@ are composed by the backend rather than by the interface. The bilingual claim
 covers the report and the interface, not the backend's advisory text.
 
 **COMPLETE**
+
+---
+
+## Page-Based Generate / Report / Evidence Flow — and Six Tests Retargeted Under Negative Control — 2026-09-23 — COMPLETE
+
+### Context
+
+The radiologist workspace was one route doing three jobs inside a frame
+`tokens.css` calls "fixed 1440x900": a film column, a report column, and an
+evidence sidebar. They competed for the same width and the evidence lost — it
+had already been given a 48px dock and then made docked-by-default, twice, in
+response to it crowding the report. Those were symptoms being treated. The
+screen was carrying more than one screen's worth of work.
+
+The constraint that shaped the whole change: **moving between the report and
+its evidence must not refetch the report.** That was not merely unimplemented,
+it was contrary to how the app worked — `/reports/{id}/explain` and
+`/compare` each independently refetch the report today
+(`explain/page.tsx:55`, `compare/page.tsx:61`).
+
+Two findings settled the route design before any code was written:
+
+- **`:id` has to be the report id.** The brief specified `/workspace/:id` as
+  the *Generate* page, which implies a session id. But there is no session→
+  report lookup anywhere in the API: `ReportListItemResponse` carries no
+  `session_id`, and the only session-keyed endpoints are the session's image
+  and its questionnaire. With the backend off-limits, "if a report already
+  exists, show View result" is unanswerable from a session id. Generate
+  therefore stays at `/patients/{id}/upload` — which already owns the image,
+  the questionnaire and the pipeline states — and is step one of the
+  breadcrumb.
+- **A library was importing from a route.** `lib/report-diff.ts` — production
+  code, not a test — imported `EDITABLE_REPORT_FIELDS` from
+  `app/reports/[reportId]/page.tsx`. That is backwards, and it had a visible
+  cost: two test files could not import what they wanted to assert on, because
+  loading that module pulls in `next/navigation`, so they read the route file
+  as text and matched substrings.
+
+### Implementation & Validation
+
+**The layout is the no-refetch guarantee.** `WorkspaceProvider` owns the
+fetched report, every mutation handler, the dirty/editing sets behind both
+unsaved-work guards, and the active evidence tab. Next keeps a segment layout
+mounted while its children change, so the report is fetched once and both pages
+read the same object. Nothing is cached; nothing asks twice.
+
+It is a component rather than logic inside `layout.tsx` for a specific reason:
+no test in this repo mounts a route module — they all avoid `next/navigation`
+— so anything that needs asserting has to be reachable from an ordinary render.
+
+`railTab` lives there too, because "the active evidence tab is preserved when
+returning" is only true if the tab is not owned by the route that keeps
+unmounting.
+
+**Proven twice, at two levels.** The component test swaps the provider's child
+— which is what Next does on navigation under a shared layout — and asserts
+both the fetch count and a mount counter are unchanged. That proves the
+provider does not refetch. It cannot prove that Next actually keeps the layout
+mounted across a real client-side navigation, which is the assumption the whole
+design rests on. `e2e/workspace-flow-check.mjs` settles that in a real browser,
+counting report GETs from CDP rather than inferring them:
+
+| check | result |
+|---|---|
+| `/reports/{id}` still lands on the report (permanent redirect) | PASS |
+| `/workspace/{id}` redirects to `/report` | PASS |
+| deep link to `/evidence` renders populated, not blank | PASS |
+| **report GETs during report→evidence→report** | **0** |
+| active tab survives the round trip | PASS |
+| back returns to the report | PASS |
+| forward returns to the evidence | PASS |
+
+**The old URL redirects permanently, and that is deliberate rather than
+tidy.** `/reports/{id}` appears in screenshots taken against `dev.db`, in
+working notes, and possibly in the thesis draft. A 404 on a URL printed in a
+thesis is not a broken link, it is a broken citation. The redirect is anchored
+to the bare segment so `/explain` and `/compare` keep matching, and a test
+asserts both halves.
+
+**Nothing from the single screen was lost.** The inventory, with its new home:
+
+| feature | new home |
+|---|---|
+| BackLink, patient link, patient code · date | layout header |
+| Ask about this report; Changes vs draft + diff panel | layout header |
+| OwnerChip, StatusChip | layout header |
+| Non-owner read-only banner | layout |
+| Error screen, loading screen | layout |
+| beforeunload + guardedNavigate (now also guards the step bar) | layout |
+| Print detection, PrintPortal + PrintableReport | layout — prints from either page |
+| FinalizePreview modal | layout |
+| Film image + PHI-masked label | Report page |
+| Eyebrow, Restore draft, finalized-by line | Report page |
+| Impression + Recommendation (summary, never collapsible) | Report page |
+| Validation block, Consistency block | Report page, outside the disclosure |
+| Full-report disclosure + the other five sections | Report page |
+| Per-section edit / regenerate / accept / discard / keyboard model | Report page (unchanged component) |
+| Explain, Compare, Print / Save as PDF, Finalize | Report page |
+| "Drafted from N archive cases" footer | Report page **and now the printout** |
+| Evidence / Agreement / Alternatives tabs | **Evidence page**, full width |
+| Retrieved cases, RetrievalSupportNotice, AgreementBadge, alternatives table | Evidence page |
+| — | **new:** View evidence, Back to report, step breadcrumb |
+
+**Print gained what it was quietly missing.** Asked to confirm the printout
+still carried evidence provenance, the honest answer was that two of the three
+pieces had never been on paper at all: the disclaimer carried the backend's
+similarity/threshold sentence, but "drafted from N cases" and the
+retrieval-support state were screen-only. That was not a regression from this
+refactor — `PrintableReport` took no evidence data, so nothing was lost by the
+sidebar moving — but it was a gap, and the values were sitting on the report
+object the whole time. They print now.
+
+**Clinical notes exist for the first time.** `upload/page.tsx:210` hardcoded
+`clinical_notes: ""`; the API has always accepted the field. Generate also no
+longer navigates away by itself the instant generation finishes — it offers
+"View result", so the pipeline's per-step timings stay on screen instead of
+appearing for one frame. On a return visit it offers the patient's latest
+report, resolved through the patient history endpoint.
+
+**A rule was retired, and is recorded rather than deleted.** The evidence panel
+used to have *no persisted preference*, deliberately: it had to dock on every
+load of every report, and a stored value was the only thing that could make one
+report open differently from the next, so the absence of one WAS the mechanism.
+A source assertion pinned `useState(true)` and the absence of any key.
+
+That rule protected a default that could drift. It no longer applies because
+there is no longer a default to protect: the evidence is a separate route, so
+the report page does not render it under any state, and reaching it takes an
+explicit navigation. The guarantee is now structural instead of behavioural,
+and the assertion was rewritten to match — the report page must contain no
+`<EvidenceSidebar>`, no `railTab`, no `AgreementBadge`, no
+`RetrievalSupportNotice`. Strictly stronger: the old test allowed the panel to
+exist as long as it started closed.
+
+**Six tests retargeted, every invariant carried over, each under negative
+control.** The rule was: for each, name the invariant, say where it now lives,
+rewrite the assertion — and then break the behaviour to prove the rewrite still
+bites.
+
+| test | invariant | where it lives now | control |
+|---|---|---|---|
+| `report-diff` | diff section order follows the editable list | imports `lib/report-fields` | PASS |
+| `report-content` | narrative list excludes boilerplate, matches canonical | **value comparison**, no source reading | PASS |
+| `full-report-rules` | warnings + consistency render before the disclosure | Report page file | PASS |
+| `report-typography` | evidence prose uses the shared body token | Evidence **route** file | PASS |
+| `report-document-view` | no consumer restates the 7-field list | Report page file | PASS |
+| `layout-tokens` | the station fits its declared 1440 frame | restated as ≤ 1440, three columns | PASS |
+
+**The control earned its keep on the first run: 5/6.** `report-diff`'s order
+assertion did not fail when `EDITABLE_REPORT_FIELDS` was reordered — because
+`computeReportDiff` builds its sections by mapping that same constant
+(`report-diff.ts:94`) and the test compared the result *to the constant*.
+Reordering it moved both sides of the comparison at once. That is a
+**pre-existing tautology**, not something this refactor introduced, and it
+would have gone on passing forever. The assertion now pins the literal order,
+which gives it an independent reference, and the control passes 6/6.
+
+Two smaller things the work surfaced. The evidence tabs had
+`aria-current="page"`, which collided with the app rail's own
+`aria-current="page"` — two current-page claims on one document. Tabs are
+current *items*, not current pages; they use `aria-current="true"` now. And
+three width tokens (`--evidence-panel`, `--evidence-rail`, `--report-col-wide`)
+became dead when the sidebar left; they are removed, and a test asserts they
+stay removed, because "no dead rail left behind" applies to the token file too.
+
+**Validation (real execution).** Frontend suite **127 → 138 passed**, 12 files.
+`tsc` clean, `eslint` clean, `check:design` 0 violations (89 files),
+`check:i18n` parity at **412 keys**. Backend suite **534 passed**, identical to
+baseline, and `git status --porcelain backend/` is empty. The browser flow
+check passes 7/7 against a disposable copy of `dev.db`, deleted afterwards.
+
+The screenshot set in `docs/thesis/figures/ui/` was checksummed **before** the
+change (`BASELINE_pre_pageflow.txt`) and all eleven files are now stale
+(`STALE.md` says which and why). Nothing was deleted: they are the only record
+of what the single-screen workspace looked like, and the thesis may still cite
+them until a new set is captured.
+
+### How to Write This in Your Thesis
+
+The claim worth making is not "the workspace was split into pages". It is
+**where state has to live for a navigation guarantee to be structural**.
+
+Frame it as the difference between caching and ownership. The requirement was
+that moving between the report and its evidence must not refetch. A cache
+satisfies that conditionally — it is correct until it is invalidated wrongly,
+and every mutation is a chance to get it wrong. Hoisting the fetch into the
+segment layout satisfies it unconditionally: the child routes have no loader to
+call, and a test asserts they contain none. The guarantee is a property of the
+dependency graph rather than of a policy someone has to keep following. That is
+the same argument the summary-first disclosure made earlier in this phase, and
+it is worth making once, well, with two instances.
+
+The second thing worth writing is the **negative control**, because it is a
+methodological point about test suites and it produced a real result. Six tests
+had to be retargeted when the file they read moved. Retargeting a source-
+reading test is exactly the moment it can quietly stop asserting anything — the
+substring it matches still exists, the test still passes, and nobody notices.
+So each rewritten assertion was checked by breaking the behaviour it protects
+and confirming it failed. Five did. The sixth did not, and the reason is worth
+the sentence: it compared a function's output to the same constant the function
+iterates, so the two sides moved together and the assertion could never fail on
+ordering. A test that cannot fail is a comment with a runtime cost. State that
+the tautology pre-dated the refactor and was found only because the retargeting
+was audited rather than assumed.
+
+For Limitations, one line: the Generate step keeps its own route
+(`/patients/{id}/upload`) rather than living under `/workspace/{id}`, because
+the API offers no way to find a report from the session that produced it. The
+breadcrumb spans all three steps regardless, but the URL space is not uniform,
+and making it uniform would need a backend endpoint this phase did not add.
+
+**COMPLETE**
