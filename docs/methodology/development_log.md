@@ -14039,3 +14039,172 @@ as a regression would have been false. Measuring the thing you are replacing,
 not just the thing you are proposing, is what keeps a contrast claim honest.
 
 **COMPLETE**
+
+---
+
+## Report Print / Save as PDF — a Second Render for Paper, and a Bengali Page That Actually Rasterises — 2026-09-23 — COMPLETE
+
+### Context
+
+The workspace's third action button was a disabled stub. Its tooltip read "Out
+of scope for this thesis (frozen Phase 12 spec)" and its label promised
+"Download PDF" — a control that named a capability the system did not have and
+was greyed out to avoid the lie being actionable.
+
+Nothing about the deferral was wrong at the time: a real PDF pipeline means a
+server-side renderer, a font stack, a template language and a document store,
+none of which this thesis scopes. What was wrong is that the browser has
+shipped a competent print-to-PDF engine for years, and the report was the one
+artefact in the product a clinician would plausibly want on paper.
+
+Two constraints shaped the whole change:
+
+1. **The screen is not the page.** The workspace leads with a summary —
+   impression, recommendation, warnings, consistency — and hides the other five
+   sections behind a disclosure. A printed clinical document has to carry all
+   seven, in the order a radiologist reads them, whatever happened to be open.
+2. **Bengali has to survive rasterisation.** The app renders Bengali reports,
+   and a printout of Bengali that comes out as tofu boxes is worse than no
+   printout: it looks like a document and carries nothing.
+
+### Implementation & Validation
+
+**The printed page is a second render, not the screen re-styled.** This is the
+decision the rest follows from. The obvious implementation is a print
+stylesheet that un-hides the collapsed disclosure and hides the chrome — and it
+is the wrong one, because it makes the printout's completeness a function of UI
+state. One stale selector after a future layout change and a report silently
+prints five sections short, with nothing to indicate it. `PrintableReport`
+builds the document from `REPORT_CONTENT_FIELDS`, the same canonical 7-field
+list the screen uses, so "all seven, in canonical order" is a property of the
+markup. It takes no `collapsed` prop and there is no way to pass one; a test
+asserts the component's arity so nobody can add one quietly.
+
+**The portal, and why the obvious placement fails.** The workspace root is
+`h-[100dvh] overflow-hidden` with three independently scrolling columns —
+exactly right for a reading station, fatal for paper, where it clips a two-page
+report to one page and a bit. Fixing that from the stylesheet means reaching up
+the tree and neutralising the height and overflow of every ancestor by hand, a
+list that rots on the next layout change. `PrintPortal` mounts the document
+under `<body>` instead, and the entire print stylesheet then needs two rules:
+
+```css
+body > *:not(.rr-print-root) { display: none !important; }
+.rr-print-root               { display: block !important; }
+```
+
+One selector removes the rail, the study header, the film, the evidence
+sidebar, its tabs, every button and both global toggles. No component opts out
+of printing individually, so none of them can forget to.
+
+The portal's client-only guard uses `useSyncExternalStore`, not
+`useState(false)` + `useEffect(setMounted)`. The latter is a cascading render
+that React's own `react-hooks/set-state-in-effect` rejects — the same rule that
+shaped `usePersistedToggle` earlier in this phase. "Am I on the client" is a
+question about an external system, which is what the hook is for.
+
+**Paper is not a theme.** The `--print-*` tokens sit deliberately OUTSIDE the
+`THEME:START/END` markers, so they are identical in both palettes and a report
+printed from dark mode comes out black on white like every other document in
+the hospital. They are also not the light theme's values — that palette is
+tinted green for the screen, and a clinical printout is neutral. The warning
+block stays readable on a greyscale printer through weight, a left rule and a
+tint, never hue alone.
+
+**Pagination.** `@page { size: A4; margin: 16mm 14mm }`. Headings carry
+`break-after: avoid` so one never strands at the foot of a page; long sections
+are deliberately allowed to split, because forcing FINDINGS to stay whole would
+push half-empty pages. The running header repeats via `position: fixed`, with
+the body reserving space so it never lands on the text.
+
+**What always prints.** Validation warnings and the consistency verdict, in
+every state including clean — the same rule that keeps them non-collapsible on
+screen, for the same reason. The signature block prints ONLY on a finalized
+report: a draft is explicitly not a signed document, and a name under one would
+say otherwise on a page that outlives the screen and its status chip.
+
+**Honesty about what this is.** The control reads "Print / Save as PDF" and its
+tooltip "Print / Save as PDF (browser)". A test asserts the old "Download PDF"
+copy is gone, that the handler is `window.print()` rather than a fetch, and
+that no `/pdf` endpoint URL appears anywhere in the route. The button is
+disabled when `hasReportContent` is false — a report with no narrative prints
+as a letterhead and a disclaimer, which looks official and says nothing. That
+predicate counts only the five narrative fields: `examination` is metadata the
+system sets and `disclaimer` is on every row ever generated, so counting either
+would make the gate true always and gate nothing.
+
+**Bengali, proven by rasterising it.** `e2e/print-pdf.mjs` drives Chromium's
+own `Page.printToPDF` — not a PDF library, because a server-rendered PDF would
+prove nothing about what a doctor's browser puts on paper, and browser print is
+what this feature IS. It saves both languages and, alongside each, a PNG taken
+under `Emulation.setEmulatedMedia({media:"print"})`. That second artefact
+exists because **"the codepoints are in the DOM" and "the conjuncts rasterised"
+are different claims**: a missing font subset produces tofu with the text layer
+perfectly intact, so a character count would have passed while the page was
+unreadable.
+
+Measured on a real `bn` report (`9928bef7…`, DOCTOR_EDITED, with a validation
+warning): **9 sections, 781 Bengali codepoints**, conjuncts correct
+(স্ট্যান্ডার্ড, ক্যালসিয়াম, সম্পূর্ণ, নির্ভুল), Bengali section headings, and
+the Bengali not-run consistency reason. **No tofu.** Noto Sans Bengali is
+self-hosted through `next/font` with the `bengali` subset, which is why it
+works — but that was a hypothesis until the page was rendered.
+
+One honest asymmetry, stated rather than papered over: the Bengali report's
+validation warning prints in English. That string is generated by the backend,
+which this change does not touch.
+
+**A rendering bug the evidence caught, not the tests.** The first print-media
+PNG had lines running off the right edge. Print emulation lays out at the
+VIEWPORT width, so screenshotting a 1440px window and cropping to A4 shows
+overflow that would have wrapped correctly on real paper. The PDFs were fine
+throughout; the preview was lying. Fixed by setting the viewport to the paper's
+content box (210mm − 28mm of `@page` margin ≈ 688px at 96dpi) before capture.
+Worth recording because the artefact that is supposed to be the evidence is
+itself capable of being wrong.
+
+**Validation (real execution).** Frontend suite **95 → 127 passed**, 11 files.
+`tsc` clean, `eslint` clean, `check:design` 0 violations (83 files),
+`check:i18n` parity at **400 keys**. Backend suite **534 passed**, identical to
+the baseline, and `git status backend/` is empty — no backend file was
+modified. PDFs and previews in `docs/thesis/figures/`. Captured against a
+disposable copy of `dev.db`; the copy was deleted afterwards.
+
+A CSS syntax error (a stray closing parenthesis in a `var()`) survived a `sed`
+fix in the working tree but kept failing the dev server from a stale Turbopack
+cache — worth remembering that `.next/dev` has to be cleared before concluding
+a CSS fix did not take.
+
+### How to Write This in Your Thesis
+
+The useful claim here is not "the report can be printed". It is **where the
+print document comes from**, and that is worth a paragraph in the system
+chapter.
+
+Frame it as the difference between a print *stylesheet* and a print
+*document*. A stylesheet re-dresses the screen's DOM, which means the printed
+artefact inherits whatever the interface happened to be showing — including a
+collapsed disclosure hiding five of seven sections. A separate render driven by
+the same canonical field list makes completeness structural: there is no state
+that can reach it, and the component is written so that no argument could carry
+one. That is a small, concrete instance of the larger argument this thesis
+makes about clinical software — that the safety-relevant properties should be
+guaranteed by construction rather than by a rule someone has to keep following.
+
+The second point worth writing up is the Bengali verification, because it is a
+good example of choosing the right evidence. The cheap check is that the
+Bengali characters are present in the markup, and it would have passed
+regardless of whether anything legible came out — missing glyph coverage
+produces empty boxes while leaving the text layer intact. The check that
+actually settles the question is to rasterise the page and look at it. State
+the measured result (9 sections, 781 Bengali codepoints, conjuncts correct, no
+tofu) and note that the font is self-hosted through the framework's font
+pipeline with the Bengali subset, which is *why* it works — but that this was a
+hypothesis until a page was rendered.
+
+Finally, one sentence belongs in Limitations, and it is small but real: the
+Bengali printout's validation warnings appear in English, because those strings
+are composed by the backend rather than by the interface. The bilingual claim
+covers the report and the interface, not the backend's advisory text.
+
+**COMPLETE**
