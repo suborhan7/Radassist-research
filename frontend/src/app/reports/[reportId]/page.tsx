@@ -552,7 +552,7 @@ export default function ReportWorkspacePage() {
           narrower than the station, scroll rather than clip a column. */}
       <div className="flex min-h-0 flex-1 overflow-x-auto">
         {/* Film -- the only pure-black surface */}
-        <div className="relative flex min-w-[360px] flex-1 items-center justify-center on-film bg-bg-film p-26">
+        <div className="relative flex min-w-film flex-1 items-center justify-center on-film bg-bg-film p-26">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={retrievalSessionImageUrl(report.session_id)}

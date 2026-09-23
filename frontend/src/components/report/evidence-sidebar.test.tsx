@@ -76,6 +76,25 @@ describe("Evidence sidebar — default and toggle", () => {
     expect(panel(container).hasAttribute("hidden")).toBe(true);
   });
 
+  it("makes the docked rail itself the control, and names what it opens", () => {
+    const { container } = render(<Harness />);
+    fireEvent.click(collapseBtn());
+
+    // The reopen control was a 28px chevron in tertiary grey, reported as
+    // invisible. Being findable by aria-label is not the same as being
+    // findable by eye, so this asserts the two things that fixed it: the
+    // button fills the rail rather than sitting as an icon inside it, and it
+    // carries the panel's own name so the stripe says what it will open.
+    const btn = expandBtn();
+    expect(btn.className).toContain("flex-1");
+    expect(btn.className).toContain("bg-cyan-wash");
+    expect(btn.textContent).toContain("Evidence");
+
+    // And it is the only thing in the rail -- nothing else to aim at or miss.
+    const rail = aside(container);
+    expect(rail.querySelectorAll("button")).toHaveLength(1);
+  });
+
   it("reopens from the rail", () => {
     const { container } = render(<Harness />);
     fireEvent.click(collapseBtn());

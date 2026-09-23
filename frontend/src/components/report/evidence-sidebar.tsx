@@ -62,25 +62,44 @@ export function EvidenceSidebar({
       )}
     >
       {collapsed ? (
-        // The rail. One icon-only control, labelled for assistive tech, which
-        // is the only thing that can bring the panel back.
-        <div className="flex flex-col items-center py-12">
-          <button
-            type="button"
-            onClick={onToggle}
-            aria-expanded={false}
-            aria-controls={id}
-            aria-label={t("workspace.expandEvidence")}
-            title={t("workspace.expandEvidence")}
-            className={cn(
-              "flex h-28 w-28 items-center justify-center rounded-control",
-              "font-mono text-mono-meta text-text-tertiary",
-              "transition-colors duration-hover hover:bg-bg-hover hover:text-cyan",
-            )}
+        // THE WHOLE RAIL IS THE BUTTON.
+        //
+        // It was a 28px icon-only control at the top of the rail, and it was
+        // reported as invisible -- correctly: a bare chevron glyph in tertiary
+        // grey, with no border and no fill, is indistinguishable from
+        // decoration. A reader who collapsed the panel could not tell there
+        // was a way back, which defeats the entire reason this docks to a rail
+        // instead of closing.
+        //
+        // Two things fix that and they work together. The hit target is now
+        // the full height of the rail, so the click is hard to miss rather
+        // than needing to be aimed; and the rail carries its own name, set
+        // vertically, so it says WHAT it will open rather than only that
+        // something will. A docked panel that does not name itself is a
+        // mystery stripe.
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={false}
+          aria-controls={id}
+          aria-label={t("workspace.expandEvidence")}
+          title={t("workspace.expandEvidence")}
+          className={cn(
+            "group flex flex-1 flex-col items-center gap-14 py-14",
+            "border-l-2 border-transparent bg-cyan-wash text-cyan",
+            "transition-colors duration-hover hover:border-cyan hover:bg-cyan hover:text-cyan-ink",
+          )}
+        >
+          <span aria-hidden="true" className="font-mono text-mono-meta-lg leading-none">
+            ‹
+          </span>
+          <span
+            aria-hidden="true"
+            className="font-mono text-section-label uppercase tracking-[0.12em] [writing-mode:vertical-rl]"
           >
-            <span aria-hidden="true">‹</span>
-          </button>
-        </div>
+            {t("workspace.tabEvidence")}
+          </span>
+        </button>
       ) : (
         <div className="flex flex-none items-stretch border-b border-hairline">
           {EVIDENCE_TABS.map((tab) => (
@@ -97,6 +116,10 @@ export function EvidenceSidebar({
               {t(`workspace.tab${tab.charAt(0).toUpperCase()}${tab.slice(1)}`)}
             </button>
           ))}
+          {/* The hide control. Given the accent wash and a left rule so it
+              reads as a control rather than as a fourth, unlabelled tab -- it
+              sat flush against the tabs in bare tertiary grey and was
+              reported as invisible. */}
           <button
             type="button"
             onClick={onToggle}
@@ -105,9 +128,10 @@ export function EvidenceSidebar({
             aria-label={t("workspace.collapseEvidence")}
             title={t("workspace.collapseEvidence")}
             className={cn(
-              "flex w-34 flex-none items-center justify-center border-b-2 border-transparent border-l border-l-hairline",
-              "font-mono text-mono-meta text-text-tertiary",
-              "transition-colors duration-hover hover:text-cyan",
+              "flex w-38 flex-none items-center justify-center",
+              "border-b-2 border-transparent border-l border-l-hairline bg-cyan-wash",
+              "font-mono text-mono-meta-lg text-cyan",
+              "transition-colors duration-hover hover:bg-cyan hover:text-cyan-ink",
             )}
           >
             <span aria-hidden="true">›</span>

@@ -173,6 +173,11 @@ const config: Config = {
         // arbitrary max-w-[68ch] that was written into two components.
         "report-prose": "var(--report-prose)",
       },
+      minWidth: {
+        // The film column's floor, sized so the station fits its declared
+        // 1440px frame rather than overflowing it by 14px.
+        film: "var(--film-min)",
+      },
       height: {
         "header-bar": "var(--header-bar)",
         "header-landing": "var(--header-landing)",
