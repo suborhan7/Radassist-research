@@ -254,8 +254,20 @@ export const bn: Dict = {
   "workspace.noWarnings": "কোনো যাচাইকরণ সতর্কতা নেই।",
   "workspace.explainReport": "রিপোর্ট ব্যাখ্যা করুন",
   "workspace.comparePrevious": "পূর্ববর্তীটির সাথে তুলনা করুন",
-  "workspace.downloadPdf": "PDF ডাউনলোড করুন",
-  "workspace.downloadPdfTitle": "এই থিসিসের আওতার বাইরে (হিমায়িত ফেজ 12 স্পেক)",
+  "workspace.downloadPdf": "প্রিন্ট / PDF হিসেবে সংরক্ষণ",
+  "workspace.downloadPdfTitle": "প্রিন্ট / PDF হিসেবে সংরক্ষণ (ব্রাউজার)",
+
+  // ── printed report (browser print; no server-side PDF exists) ─────────────
+  "print.systemName": "RadAssist-RAG",
+  "print.title": "বুকের এক্স-রে রিপোর্ট",
+  "print.patient": "রোগী",
+  "print.patientCode": "রোগী আইডি",
+  "print.studyDate": "পরীক্ষার তারিখ",
+  "print.status": "অবস্থা",
+  "print.notRecorded": "রেকর্ড করা হয়নি",
+  "print.finalized": "চূড়ান্ত",
+  "print.footer": (p) =>
+    `রিপোর্ট ${String(p.id)} · RadAssist-RAG দ্বারা তৈরি এবং রিপোর্টকারী রেডিওলজিস্ট দ্বারা পর্যালোচিত। এটি স্বয়ংক্রিয় রোগনির্ণয় নয়।`,
   "workspace.draftedFrom": (p) =>
     `${Number(p.count)}টি আর্কাইভ কেস থেকে খসড়া তৈরি, তারপর রিপোর্টকারী রেডিওলজিস্ট কর্তৃক পর্যালোচিত ও সম্পাদিত। এটি একটি স্বয়ংক্রিয় রোগনির্ণয় নয়।`,
   "workspace.tabEvidence": "প্রমাণ",

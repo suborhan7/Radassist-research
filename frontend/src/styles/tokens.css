@@ -204,6 +204,23 @@
   --t-panel: 200ms;
   --ease:    cubic-bezier(.2, 0, 0, 1);
 
+  /* ---- print. Paper is not a theme: a report printed from dark mode must
+     come out black-on-white like every other document in the hospital, so
+     these are deliberately OUTSIDE the THEME markers and are the same in
+     both palettes. They are also not the light theme's tokens — that palette
+     is tinted green for the screen, and a clinical printout is neutral.
+     Ink is near-black rather than pure black because pure black on white is
+     harsher than it needs to be at body sizes; the warning pair is dark
+     enough to survive a greyscale printer, where the amber hue carries
+     nothing at all. ---- */
+  --print-paper:    #FFFFFF;
+  --print-ink:      #111111;
+  --print-ink-soft: #3F3F3F;
+  --print-rule:     #B4B4B4;
+  --print-rule-soft:#DCDCDC;
+  --print-warn-ink: #6B3200;
+  --print-warn-bg:  #FBF3E8;
+
   /* ---- decorative synthetic radiograph SVG — the one hex exception
      outside the semantic palette above; never reference elsewhere.
      Unchanged pending a decision on whether chest-xray-illustration.tsx

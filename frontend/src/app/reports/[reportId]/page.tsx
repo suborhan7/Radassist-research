@@ -37,6 +37,9 @@ import { REPORT_FIELD_LABEL_KEY } from "@/components/report/report-document-view
 import { FullReportDisclosure } from "@/components/report/full-report-disclosure";
 import { EvidenceSidebar, type EvidenceTab } from "@/components/report/evidence-sidebar";
 import { ConsistencyState } from "@/components/report/consistency-state";
+import { PrintableReport } from "@/components/report/printable-report";
+import { PrintPortal } from "@/components/report/print-portal";
+import { hasReportContent } from "@/lib/report-content";
 import { usePersistedToggle } from "@/lib/use-persisted-toggle";
 import { shouldForceFullReport, fullReportForcedReasonKey } from "@/lib/full-report-rules";
 import { computeReportDiff, editableRecordFrom } from "@/lib/report-diff";
@@ -696,9 +699,16 @@ export default function ReportWorkspacePage() {
               >
                 {t("workspace.comparePrevious")}
               </Link>
+              {/* Browser print, and labelled as browser print. There is no
+                  server-side PDF pipeline and this does not pretend there is:
+                  it opens the print dialog, where the reader can save to PDF.
+                  Disabled only when there is nothing worth printing -- a
+                  report with no narrative would come out as a letterhead and a
+                  disclaimer, which looks official and says nothing. */}
               <button
                 type="button"
-                disabled
+                onClick={() => window.print()}
+                disabled={!hasReportContent(report.content)}
                 title={t("workspace.downloadPdfTitle")}
                 className={cn(BUTTON_BASE, VARIANT.ghost, SIZE.md, "flex-1")}
               >
@@ -791,6 +801,19 @@ export default function ReportWorkspacePage() {
             )}
         </EvidenceSidebar>
       </div>
+
+      {/* The paper version. Rendered on every workspace view and hidden by
+          CSS until the print dialog opens, so printing needs no round trip and
+          no second screen -- and, because it is its own render, it carries all
+          seven sections whatever the reader had collapsed. */}
+      <PrintPortal>
+        <PrintableReport
+          report={report}
+          patientName={patient?.name ?? null}
+          patientCode={patient?.patient_code ?? null}
+          finalizedByName={finalizedByName ?? null}
+        />
+      </PrintPortal>
 
       {showPreview && diffSummary && (
         <FinalizePreview

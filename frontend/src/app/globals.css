@@ -65,3 +65,164 @@ body.lang-bn .font-mono {
   font-family: var(--font-mono), ui-monospace, monospace;
   text-transform: none;
 }
+
+/* ── Print: the report as an A4 clinical document ────────────────────────────
+ * The screen and the page are different documents, not one document at two
+ * sizes. PrintableReport renders the paper version independently and
+ * PrintPortal puts it directly under <body>, so everything here needs to do is
+ * swap which of the two is visible — no un-hiding of collapsed panels, no
+ * reaching up the tree to undo the reading station's fixed height.
+ *
+ * Paper is not a theme. A report printed from dark mode comes out black on
+ * white like every other document in the hospital, so the colours below are
+ * the --print-* tokens rather than the palette ones.
+ * ──────────────────────────────────────────────────────────────────────────── */
+.rr-print-root {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 16mm 14mm;
+  }
+
+  /* One rule hides the entire application: rail, header, film, evidence
+     sidebar, tabs, buttons, the theme and language toggles. They are siblings
+     of the print document, so none of them needs to know about printing. */
+  body > *:not(.rr-print-root) {
+    display: none !important;
+  }
+
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+    background: var(--print-paper) !important;
+    color: var(--print-ink) !important;
+  }
+
+  .rr-print-root {
+    display: block !important;
+    background: var(--print-paper);
+    color: var(--print-ink);
+    font-size: 11pt;
+    line-height: 1.55;
+  }
+
+  /* Repeats on every page in Chromium; the body's padding-top reserves the
+     space so it never lands on top of the text. */
+  .rr-print-running {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: space-between;
+    gap: 8mm;
+    padding-bottom: 2mm;
+    border-bottom: 0.4pt solid var(--print-rule);
+    font-size: 8pt;
+    color: var(--print-ink-soft);
+  }
+
+  .rr-print-body {
+    padding-top: 10mm;
+  }
+
+  .rr-print-title {
+    margin: 0 0 4mm;
+    font-size: 16pt;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  /* Study identification, as a two-column label/value block. */
+  .rr-print-meta {
+    display: grid;
+    grid-template-columns: repeat(2, auto 1fr);
+    gap: 1.5mm 3mm;
+    margin: 0 0 6mm;
+    padding-bottom: 4mm;
+    border-bottom: 0.6pt solid var(--print-rule);
+    font-size: 9.5pt;
+  }
+  .rr-print-meta > div {
+    display: contents;
+  }
+  .rr-print-meta dt {
+    color: var(--print-ink-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 8pt;
+    align-self: baseline;
+  }
+  .rr-print-meta dd {
+    margin: 0;
+    font-weight: 500;
+  }
+
+  .rr-print-section {
+    margin: 0 0 5mm;
+  }
+  /* The requirement that matters for pagination: a heading never sits alone at
+     the foot of a page. Long sections may still split — forcing FINDINGS to
+     stay whole would push half-empty pages — but they never split away from
+     the label that says what they are. */
+  .rr-print-section h2 {
+    margin: 0 0 1.5mm;
+    font-size: 9pt;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--print-ink-soft);
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+  .rr-print-section p,
+  .rr-print-section li {
+    margin: 0 0 1.5mm;
+    orphans: 3;
+    widows: 3;
+    white-space: pre-wrap;
+  }
+  .rr-print-section ul {
+    margin: 0;
+    padding-left: 5mm;
+  }
+
+  /* Warnings print. They are the reason someone re-reads a report, and a
+     printout that quietly dropped them would be a more confident document
+     than the record it came from. Kept legible in greyscale by weight and a
+     rule, not by hue alone. */
+  .rr-print-validation {
+    padding: 3mm 4mm;
+    border: 0.6pt solid var(--print-rule);
+    border-left: 2pt solid var(--print-warn-ink);
+    background: var(--print-warn-bg);
+    color: var(--print-warn-ink);
+    break-inside: avoid;
+    page-break-inside: avoid;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .rr-print-validation h2 {
+    color: var(--print-warn-ink);
+  }
+
+  .rr-print-signature {
+    margin-top: 8mm;
+    padding-top: 3mm;
+    border-top: 0.6pt solid var(--print-rule);
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .rr-print-footer {
+    margin-top: 8mm;
+    padding-top: 2mm;
+    border-top: 0.4pt solid var(--print-rule-soft);
+    font-size: 7.5pt;
+    color: var(--print-ink-soft);
+  }
+}
