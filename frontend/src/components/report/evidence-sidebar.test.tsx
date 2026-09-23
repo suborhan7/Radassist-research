@@ -7,10 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect, useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { LanguageProvider } from "@/lib/i18n";
-import { usePersistedToggle } from "@/lib/use-persisted-toggle";
 import { EvidenceSidebar, type EvidenceTab } from "./evidence-sidebar";
-
-const STORAGE_KEY = "rr:v1:doctor-1:workspace.evidenceCollapsed.v2";
 
 let mountCount = 0;
 function MountCounter() {
@@ -20,12 +17,14 @@ function MountCounter() {
   return null;
 }
 
-/** Mirrors the workspace's wiring: persisted collapse + in-React tab state. */
-function Harness({ scope = "doctor-1" }: { scope?: string | null }) {
-  // Collapsed by default, matching the workspace. A source assertion in
-  // full-report-rules.test.ts pins page.tsx to this same name and default,
-  // so this harness cannot drift away from what ships.
-  const [collapsed, setCollapsed] = usePersistedToggle(scope, "workspace.evidenceCollapsed.v2", true);
+/**
+ * Mirrors the workspace's wiring: plain state for the dock, plain state for
+ * the tab. The panel is deliberately NOT persisted -- it docks on every load
+ * -- so the harness uses the same useState the page does. A source assertion
+ * in full-report-rules.test.ts holds page.tsx to that.
+ */
+function Harness() {
+  const [collapsed, setCollapsed] = useState(true);
   const [tab, setTab] = useState<EvidenceTab>("evidence");
   return (
     <LanguageProvider initial="en">
@@ -142,39 +141,39 @@ describe("Evidence sidebar — collapsed content is hidden from assistive tech",
   });
 });
 
-describe("Evidence sidebar — persistence", () => {
-  it("writes the choice to a namespaced, per-doctor key", () => {
-    render(<Harness />);
-    fireEvent.click(expandBtn());
-    expect(window.localStorage.getItem(STORAGE_KEY)).toBe("false");
-  });
-
-  it("stores nothing until the reader actually chooses", () => {
-    // This is what let the default change reach existing readers: the hook
-    // writes on toggle only, so anyone who never touched the control has no
-    // stored value and picks up whatever the current default is.
-    render(<Harness />);
-    expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull();
-  });
-
-  it("survives a reload", () => {
+describe("Evidence sidebar — docked on every load, never remembered", () => {
+  it("comes back DOCKED after a reload, even having been expanded", () => {
+    // The panel used to persist, and that is exactly what was removed: a
+    // reader who opened it on one report should not find the next one already
+    // open. Unmount/remount is what a reload looks like to this component.
     const first = render(<Harness />);
     fireEvent.click(expandBtn());
+    expect(collapseBtn().getAttribute("aria-expanded")).toBe("true");
     first.unmount();
 
     const { container } = render(<Harness />);
-    expect(collapseBtn().getAttribute("aria-expanded")).toBe("true");
-    expect(aside(container).className).toContain("w-evidence-panel");
+    expect(expandBtn().getAttribute("aria-expanded")).toBe("false");
+    expect(aside(container).className).toContain("w-evidence-rail");
   });
 
-  it("does not leak one doctor's layout to another", () => {
-    const first = render(<Harness scope="doctor-1" />);
+  it("writes nothing to storage, however much it is toggled", () => {
+    // The assertion that keeps the behaviour honest: not merely that it opens
+    // docked, but that there is no stored value anywhere that a future change
+    // could start honouring again.
+    render(<Harness />);
     fireEvent.click(expandBtn());
-    first.unmount();
+    fireEvent.click(collapseBtn());
+    fireEvent.click(expandBtn());
+    expect(window.localStorage.length).toBe(0);
+  });
 
-    // doctor-2 never chose, so they get the default: docked.
-    render(<Harness scope="doctor-2" />);
-    expect(expandBtn().getAttribute("aria-expanded")).toBe("false");
+  it("stays expanded while the reader is on this report", () => {
+    // Not persisted is not the same as not sticky: within one view it holds,
+    // so the panel does not snap shut between interactions.
+    render(<Harness />);
+    fireEvent.click(expandBtn());
+    fireEvent.click(screen.getByRole("button", { name: /alternatives/i }));
+    expect(collapseBtn().getAttribute("aria-expanded")).toBe("true");
   });
 });
 

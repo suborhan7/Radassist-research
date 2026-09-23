@@ -104,24 +104,29 @@ describe("the workspace keeps conclusions and alerts out of the disclosure", () 
     expect(page).toContain("fullReportChoice || forceFullReport");
   });
 
-  it("scopes both panel preferences to the signed-in doctor", () => {
+  it("scopes the full-report preference to the signed-in doctor", () => {
     expect(page).toContain("usePersistedToggle(\n    currentDoctorId,\n    FULL_REPORT_PREF,");
-    expect(page).toContain("usePersistedToggle(\n    currentDoctorId,\n    EVIDENCE_PREF,");
   });
 
-  it("opens with the evidence panel DOCKED, under the v2 key", () => {
-    // The evidence sidebar's default flipped from expanded to docked. Two
-    // things have to hold together for that to actually reach a reader, and
-    // the component test cannot see either of them because it supplies its own
-    // harness values:
+  it("opens with the evidence panel docked, and never remembers otherwise", () => {
+    // The evidence panel must dock on every load of every report. The way
+    // that is guaranteed is by NOT persisting it at all -- a stored value is
+    // the only thing that could make one report open differently from the
+    // next, so the absence of one is the mechanism, not an oversight.
     //
-    //   1. the page passes `true` (docked) as the default, and
-    //   2. the key is the v2 one, so a choice made about the OLD default is
-    //      not replayed as though it were about this one.
-    //
-    // This pins both, and pins the component test's harness to the same pair.
-    expect(page).toContain('const EVIDENCE_PREF = "workspace.evidenceCollapsed.v2"');
-    const call = page.slice(page.indexOf("usePersistedToggle(\n    currentDoctorId,\n    EVIDENCE_PREF,"));
-    expect(call.slice(0, 600)).toMatch(/EVIDENCE_PREF,[\s\S]*?\n\s*true,/);
+    // The component test cannot see this: it supplies its own state. So the
+    // page is pinned directly -- docked initial state, and no storage key or
+    // persisted hook anywhere near the evidence panel.
+    expect(page).toContain("const [evidenceCollapsed, setEvidenceCollapsed] = useState(true)");
+    // The DECLARATION and the USE, not the bare word: the comment above the
+    // full-report key explains why the evidence one is absent, and naming it
+    // there is the documentation, not a leftover.
+    expect(page).not.toMatch(/const EVIDENCE_PREF\s*=/);
+    expect(page).not.toMatch(/usePersistedToggle\([\s\S]{0,120}?EVIDENCE_PREF/);
+
+    // The full-report disclosure is the deliberate counter-example and keeps
+    // its storage, so this is a decision about one panel rather than the
+    // persistence mechanism being abandoned.
+    expect(page).toContain("FULL_REPORT_PREF");
   });
 });

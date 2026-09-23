@@ -97,15 +97,22 @@ const SUMMARY_FIELDS = CONTENT_FIELDS.filter((f) => SUMMARY_KEY_SET.has(f.key)).
 );
 const FULL_REPORT_FIELDS = CONTENT_FIELDS.filter((f) => !SUMMARY_KEY_SET.has(f.key));
 
-/** localStorage names (namespaced and scoped to the doctor by the hook). */
+/** localStorage name (namespaced and scoped to the doctor by the hook). */
 const FULL_REPORT_PREF = "workspace.fullReport";
-// v2, and the rename is the point rather than housekeeping. The DEFAULT for
-// this preference flipped from expanded to collapsed, and the hook only ever
-// writes on an explicit toggle -- so a reader who never touched the control
-// has no stored value and picks up the new default, but a reader who did would
-// keep being served a decision they made about the old behaviour. Retiring the
-// key retires those, which is what `v1` in the key namespace exists for.
-const EVIDENCE_PREF = "workspace.evidenceCollapsed.v2";
+
+// The evidence panel deliberately has NO persisted preference. It is not a
+// default-that-can-be-overridden; it is docked on every load of every report,
+// and expanding it lasts only as long as you are looking at that report.
+//
+// That is a real trade and it was chosen: persistence was built, shipped, and
+// then removed, because "remembered per doctor" and "always starts the same
+// way" cannot both be true, and a predictable starting point won. A reader
+// moving through a queue of reports gets the same layout every time rather
+// than one that depends on what they did three cases ago.
+//
+// The full-report disclosure above is the opposite case and keeps its storage:
+// it lives inside one report's document, so remembering it is a preference
+// about how you read, not a layout that follows you between patients.
 
 /**
  * Radiologist Workspace (Phase 12 Step 5, restyled Phase 14 per
@@ -294,26 +301,21 @@ export default function ReportWorkspacePage() {
     };
   }, []);
 
-  // Panel preferences, remembered per doctor in this browser only. Scoped to
-  // currentDoctorId so two doctors at one workstation do not inherit each
-  // other's layout; until that id arrives the hook stays on the default and
-  // touches no storage. Never sent to the backend -- see the hook's docstring.
+  // Remembered per doctor in this browser only. Scoped to currentDoctorId so
+  // two doctors at one workstation do not inherit each other's layout; until
+  // that id arrives the hook stays on the default and touches no storage.
+  // Never sent to the backend -- see the hook's docstring.
   const [fullReportChoice, setFullReportChoice] = usePersistedToggle(
     currentDoctorId,
     FULL_REPORT_PREF,
     false, // default collapsed: the summary is the point of the screen
   );
-  const [evidenceCollapsed, setEvidenceCollapsed] = usePersistedToggle(
-    currentDoctorId,
-    EVIDENCE_PREF,
-    // Default DOCKED. The screen opens on the report -- the impression, the
-    // warnings, the consistency verdict -- and the retrieved evidence is
-    // something a reader goes to look at, not something that should be
-    // occupying a third of the station before anyone asked for it. The rail
-    // keeps it one click away and names itself, which is what makes starting
-    // collapsed safe rather than hidden.
-    true,
-  );
+
+  // Plain state, and plain state is the decision -- see EVIDENCE_PREF's absence
+  // above. Docked on every load of every report; expanding is for this report,
+  // now. Nothing is read from or written to storage, so no earlier click can
+  // change how the next case opens.
+  const [evidenceCollapsed, setEvidenceCollapsed] = useState(true);
 
   // The four states that hold the full report open -- see full-report-rules.ts
   // for what each one protects. A regeneration counts as in flight both while
